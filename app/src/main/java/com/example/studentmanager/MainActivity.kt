@@ -545,32 +545,70 @@ fun FocusScreen(viewModel: StudentViewModel) {
     }
 }
 
-// NEW: Grades Screen
+// In MainActivity.kt
+
 @Composable
 fun GradesScreen(viewModel: StudentViewModel) {
+    // FIX 1: Use Kotlin's safe formatting extension instead of String.format
+    // This prevents potential locale or format crashes
     val gpa = viewModel.calculateGPA()
-    val formattedGPA = String.format("%.2f", gpa)
+    val formattedGPA = "%.2f".format(gpa)
 
-    LazyColumn(contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    LazyColumn(
+        contentPadding = PaddingValues(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
         item {
-            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = DeepViolet), elevation = CardDefaults.cardElevation(8.dp)) {
-                Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Cumulative GPA", style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.8f))
-                    Text(formattedGPA, style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold, color = Color.White)
-                    Text("Keep pushing! 🚀", style = MaterialTheme.typography.bodyMedium, color = Gold)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = DeepViolet),
+                elevation = CardDefaults.cardElevation(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        "Cumulative GPA",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White.copy(alpha = 0.8f)
+                    )
+                    Text(
+                        formattedGPA,
+                        style = MaterialTheme.typography.displayLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        "Keep pushing! 🚀",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Gold
+                    )
                 }
             }
         }
-        item { Text("Courses", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+        item {
+            Text(
+                "Courses",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
 
         if (viewModel.courses.isEmpty()) {
             item {
-                Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text("No courses yet. Tap + to add one!", color = TextGray)
                 }
             }
         } else {
-            items(viewModel.courses) { course ->
+            // FIX 2: Added a unique key for performance and stability
+            items(viewModel.courses, key = { it.id }) { course ->
                 CourseCard(course) { viewModel.deleteCourse(course) }
             }
         }
@@ -579,6 +617,8 @@ fun GradesScreen(viewModel: StudentViewModel) {
 
 @Composable
 fun CourseCard(course: Course, onDelete: () -> Unit) {
+    // FIX 3: Robust null safety. If data is corrupted (e.g., from Gson),
+    // these fields might be null. We use "?:" to provide a default value so it doesn't crash.
     val gradeColor = when {
         course.gradePoint >= 4.0 -> GradeA
         course.gradePoint >= 3.0 -> GradeB
@@ -587,16 +627,45 @@ fun CourseCard(course: Course, onDelete: () -> Unit) {
         else -> GradeF
     }
 
-    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CardWhite), elevation = CardDefaults.cardElevation(2.dp)) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = CardWhite),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(course.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextDark)
-                Text("${course.credits} Credits", style = MaterialTheme.typography.bodySmall, color = TextGray)
+                // Safe access to name
+                Text(
+                    course.name ?: "Unknown Course",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = TextDark
+                )
+                Text(
+                    "${course.credits} Credits",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextGray
+                )
             }
-            Surface(color = gradeColor.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp)) {
-                Text(course.gradeLabel, color = gradeColor, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+            Surface(
+                color = gradeColor.copy(alpha = 0.1f),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                // Safe access to gradeLabel
+                Text(
+                    course.gradeLabel ?: "-",
+                    color = gradeColor,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                )
             }
-            IconButton(onClick = onDelete) { Icon(Icons.Outlined.Delete, "Delete", tint = Color.LightGray) }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Outlined.Delete, "Delete", tint = Color.LightGray)
+            }
         }
     }
 }
