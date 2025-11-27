@@ -924,7 +924,7 @@ fun ProfileDialog(
     var bio by remember { mutableStateOf(profile.bio) }
     var avatarId by remember { mutableIntStateOf(profile.avatarId) }
     var imageUri by remember { mutableStateOf<android.net.Uri?>(if (profile.imageUri != null) android.net.Uri.parse(profile.imageUri) else null) }
-    val categories = listOf("Computer Science", "Business & Eco", "Arts & Design", "Engineering", "Medicine", "Law & Politics")
+    val categories = listOf("Information Technology","Computer Science", "Education", "Business & Eco", "Arts & Design", "Engineering", "Medicine", "Law & Politics")
     var selectedCategory by remember { mutableStateOf(profile.category) }
     var expandedCategory by remember { mutableStateOf(false) }
 
