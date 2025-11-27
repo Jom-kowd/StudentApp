@@ -36,12 +36,16 @@ import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.PauseCircle
+import androidx.compose.material.icons.outlined.PlayCircle
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -57,9 +61,13 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -146,6 +154,16 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
     var userProfile by mutableStateOf(UserProfile())
         private set
 
+    // --- POMODORO TIMER STATE ---
+    var timerDuration by mutableLongStateOf(25 * 60 * 1000L) // Default 25 mins
+        private set
+    var timeLeft by mutableLongStateOf(25 * 60 * 1000L)
+        private set
+    var isTimerRunning by mutableStateOf(false)
+        private set
+
+    private var timerJob: Job? = null
+
     init {
         loadData()
     }
@@ -184,6 +202,43 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
     fun deleteNote(note: BrainNote) {
         notes.remove(note)
         saveData()
+    }
+
+    // --- Timer Logic ---
+    fun toggleTimer() {
+        if (isTimerRunning) {
+            pauseTimer()
+        } else {
+            startTimer()
+        }
+    }
+
+    private fun startTimer() {
+        isTimerRunning = true
+        timerJob = viewModelScope.launch {
+            while (timeLeft > 0) {
+                delay(1000L)
+                timeLeft -= 1000L
+            }
+            isTimerRunning = false
+            // Optional: You could trigger a notification here when done
+        }
+    }
+
+    private fun pauseTimer() {
+        isTimerRunning = false
+        timerJob?.cancel()
+    }
+
+    fun resetTimer() {
+        pauseTimer()
+        timeLeft = timerDuration
+    }
+
+    fun setDuration(minutes: Int) {
+        resetTimer()
+        timerDuration = minutes * 60 * 1000L
+        timeLeft = timerDuration
     }
 
     private fun scheduleNotification(assignment: Assignment) {
@@ -331,12 +386,15 @@ fun StudentApp(viewModel: StudentViewModel) {
 
     Scaffold(
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showAddDialog = true },
-                containerColor = DeepViolet,
-                contentColor = Color.White
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add")
+            // Only show FAB on Assignments (0) and Notes (1) tabs
+            if (selectedTab != 2) {
+                FloatingActionButton(
+                    onClick = { showAddDialog = true },
+                    containerColor = DeepViolet,
+                    contentColor = Color.White
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Add")
+                }
             }
         },
         bottomBar = {
@@ -353,6 +411,12 @@ fun StudentApp(viewModel: StudentViewModel) {
                     icon = { Icon(Icons.Default.Lightbulb, "Brain Dump") },
                     label = { Text("Brain Dump") }
                 )
+                NavigationBarItem(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
+                    icon = { Icon(Icons.Default.Timer, "Focus") },
+                    label = { Text("Focus") }
+                )
             }
         }
     ) { padding ->
@@ -362,25 +426,33 @@ fun StudentApp(viewModel: StudentViewModel) {
                 .background(OffWhite)
                 .padding(padding)
         ) {
-            // Header with updated Profile Logic
-            TopHeader(
-                profile = viewModel.userProfile,
-                onProfileClick = { showProfileDialog = true }
-            )
+            // Only show Header on Tasks and Notes tabs to keep Focus Mode clean
+            if (selectedTab != 2) {
+                TopHeader(
+                    profile = viewModel.userProfile,
+                    onProfileClick = { showProfileDialog = true }
+                )
+            }
 
             // Content Switcher
-            if (selectedTab == 0) {
-                DashboardSection(progress = viewModel.getProgress())
-                AssignmentList(
-                    assignments = viewModel.assignments,
-                    onToggle = { viewModel.toggleAssignment(it) },
-                    onDelete = { viewModel.deleteAssignment(it) }
-                )
-            } else {
-                NoteGrid(
-                    notes = viewModel.notes,
-                    onDelete = { viewModel.deleteNote(it) }
-                )
+            when (selectedTab) {
+                0 -> {
+                    DashboardSection(progress = viewModel.getProgress())
+                    AssignmentList(
+                        assignments = viewModel.assignments,
+                        onToggle = { viewModel.toggleAssignment(it) },
+                        onDelete = { viewModel.deleteAssignment(it) }
+                    )
+                }
+                1 -> {
+                    NoteGrid(
+                        notes = viewModel.notes,
+                        onDelete = { viewModel.deleteNote(it) }
+                    )
+                }
+                2 -> {
+                    FocusScreen(viewModel = viewModel)
+                }
             }
         }
 
@@ -650,6 +722,119 @@ fun NoteGrid(notes: List<BrainNote>, onDelete: (BrainNote) -> Unit) {
             }
         }
     }
+}
+
+// --- NEW FEATURE: FOCUS SCREEN ---
+@Composable
+fun FocusScreen(viewModel: StudentViewModel) {
+    val progress = if (viewModel.timerDuration > 0) {
+        viewModel.timeLeft.toFloat() / viewModel.timerDuration.toFloat()
+    } else 0f
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = "Focus Mode",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            color = DeepViolet
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Stay productive. Take breaks.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextGray
+        )
+
+        Spacer(modifier = Modifier.height(48.dp))
+
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(250.dp)) {
+            CircularProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxSize(),
+                color = ElectricTeal,
+                trackColor = SoftViolet.copy(alpha = 0.2f),
+                strokeWidth = 12.dp,
+            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = formatTime(viewModel.timeLeft),
+                    style = MaterialTheme.typography.displayLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = TextDark
+                )
+                if (viewModel.isTimerRunning) {
+                    Text("Focusing...", color = ElectricTeal, fontWeight = FontWeight.SemiBold)
+                } else {
+                    Text("Paused", color = Color.Gray)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(48.dp))
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Reset Button
+            IconButton(
+                onClick = { viewModel.resetTimer() },
+                modifier = Modifier
+                    .size(56.dp)
+                    .background(OffWhite, CircleShape)
+                    .border(1.dp, Color.LightGray, CircleShape)
+            ) {
+                Icon(Icons.Outlined.Refresh, "Reset", tint = TextDark)
+            }
+
+            // Play/Pause Button
+            IconButton(
+                onClick = { viewModel.toggleTimer() },
+                modifier = Modifier
+                    .size(80.dp)
+                    .background(DeepViolet, CircleShape)
+                    .shadow(8.dp, CircleShape)
+            ) {
+                Icon(
+                    imageVector = if (viewModel.isTimerRunning) Icons.Outlined.PauseCircle else Icons.Outlined.PlayCircle,
+                    contentDescription = "Toggle Timer",
+                    tint = Color.White,
+                    modifier = Modifier.size(48.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // Quick Duration Toggles
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            listOf(15, 25, 45).forEach { mins ->
+                FilterChip(
+                    selected = viewModel.timerDuration == mins * 60 * 1000L,
+                    onClick = { viewModel.setDuration(mins) },
+                    label = { Text("$mins min") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = SoftViolet,
+                        selectedLabelColor = Color.White
+                    )
+                )
+            }
+        }
+    }
+}
+
+// Helper to format milliseconds to MM:SS
+fun formatTime(millis: Long): String {
+    val totalSeconds = millis / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return String.format("%02d:%02d", minutes, seconds)
 }
 
 // --- DIALOGS ---
