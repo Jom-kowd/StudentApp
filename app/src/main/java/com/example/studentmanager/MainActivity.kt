@@ -168,6 +168,10 @@ class NotificationReceiver : BroadcastReceiver() {
 }
 
 // --- 4. VIEWMODEL (LOGIC) ---
+// In MainActivity.kt, REPLACE the 'StudentViewModel' class
+
+// In MainActivity.kt, REPLACE the 'StudentViewModel' class
+
 class StudentViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("student_app_prefs", Context.MODE_PRIVATE)
     private val gson = Gson()
@@ -199,10 +203,48 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
         loadData()
     }
 
-    // --- Profile ---
+    // --- Profile Actions (FIXED FOR GALLERY ISSUE) ---
     fun updateProfile(name: String, school: String, bio: String, avatarId: Int, imageUri: String?, category: String) {
-        userProfile = UserProfile(name, school, bio, avatarId, imageUri, category)
+        // Check if the image is new (from Gallery "content://" URI)
+        val finalImageUri = if (imageUri != null && imageUri.startsWith("content://")) {
+            // Copy it to the app's internal storage so it persists after restart
+            copyUriToInternalStorage(android.net.Uri.parse(imageUri))
+        } else {
+            // If it's already a "file://" URI or null, keep it
+            imageUri
+        }
+
+        userProfile = UserProfile(name, school, bio, avatarId, finalImageUri, category)
         saveData()
+    }
+
+    // Helper function to save the image
+    private fun copyUriToInternalStorage(uri: android.net.Uri): String? {
+        return try {
+            val context = getApplication<Application>()
+            val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+
+            // Create a unique file name so the image updates correctly
+            val fileName = "profile_${System.currentTimeMillis()}.jpg"
+            val file = java.io.File(context.filesDir, fileName)
+
+            // Optional: Delete old profile images to save space
+            context.filesDir.listFiles()?.forEach {
+                if (it.name.startsWith("profile_") && it.name != fileName) {
+                    it.delete()
+                }
+            }
+
+            file.outputStream().use { outputStream ->
+                inputStream.copyTo(outputStream)
+            }
+            inputStream.close()
+            // Return the FILE URI (file://...) which we have permanent access to
+            android.net.Uri.fromFile(file).toString()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 
     // --- Subjects ---
@@ -237,7 +279,7 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
     fun addAssignment(title: String, deadline: Long, category: String) {
         val newItem = Assignment(title = title, deadline = deadline, category = category)
         assignments.add(0, newItem)
-        assignments.sortBy { it.deadline } // Sort by deadline automatically
+        assignments.sortBy { it.deadline }
         saveData()
         scheduleNotification(newItem)
     }
