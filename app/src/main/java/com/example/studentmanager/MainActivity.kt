@@ -16,7 +16,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -50,9 +49,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextDecoration // <--- ADDED THIS IMPORT
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -79,29 +77,41 @@ val CardWhite = Color(0xFFFFFFFF)
 val TextDark = Color(0xFF1A1A1A)
 val TextGray = Color(0xFF757575)
 val Gold = Color(0xFFFFD700)
-val GradeA = Color(0xFF4CAF50)
-val GradeB = Color(0xFF8BC34A)
-val GradeC = Color(0xFFFFC107)
-val GradeD = Color(0xFFFF9800)
-val GradeF = Color(0xFFF44336)
+val WarningRed = Color(0xFFD32F2F) // For deadlines < 24h
 
-// Category Colors
-val CatHomework = Color(0xFFE57373)
-val CatExam = Color(0xFFBA68C8)
-val CatProject = Color(0xFF64B5F6)
-val CatPersonal = Color(0xFFFFB74D)
+// PH Grading Colors
+val GradeA = Color(0xFF4CAF50) // 1.0 - 1.25
+val GradeB = Color(0xFF8BC34A) // 1.5 - 1.75
+val GradeC = Color(0xFFFFC107) // 2.0 - 2.5
+val GradeD = Color(0xFFFF9800) // 2.75 - 3.0
+val GradeF = Color(0xFFF44336) // 5.0 (Fail)
+
+// PH Context Category Colors
+val CatActivity = Color(0xFF42A5F5)   // Blue
+val CatQuiz = Color(0xFFAB47BC)       // Purple
+val CatExam = Color(0xFFEF5350)       // Red
+val CatThesis = Color(0xFFFFA726)     // Orange
+val CatOrg = Color(0xFF66BB6A)        // Green
 
 // --- 2. MODEL (DATA CLASSES) ---
 data class Assignment(
     val id: Long = System.currentTimeMillis(),
     val title: String,
-    val deadline: Long,
+    val deadline: Long, // Stores Date AND Time in millis
     val category: String,
     val isCompleted: Boolean = false
 ) {
     fun getFormattedDate(): String {
-        val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+        // Updated format: "Nov 28, 2025 at 11:59 PM"
+        val sdf = SimpleDateFormat("MMM dd, yyyy 'at' h:mm a", Locale.getDefault())
         return sdf.format(Date(deadline))
+    }
+
+    // Check if due within 24 hours (Urgent!)
+    fun isUrgent(): Boolean {
+        val now = System.currentTimeMillis()
+        val diff = deadline - now
+        return diff in 0..(24 * 60 * 60 * 1000) && !isCompleted
     }
 }
 
@@ -116,17 +126,19 @@ data class UserProfile(
     val school: String = "Android Academy",
     val bio: String = "Coding my future.",
     val avatarId: Int = 0,
-    val imageUri: String? = null, // NEW: Stores the URI of the gallery photo
-    val category: String = "Computer Science" // NEW: The chosen category
+    val imageUri: String? = null,
+    val category: String = "Computer Science"
 )
 
-// NEW: Course Model for Grade Tracking
-data class Course(
+data class Subject(
     val id: Long = System.currentTimeMillis(),
-    val name: String,
-    val credits: Int,
-    val gradeLabel: String, // e.g., "A", "B+"
-    val gradePoint: Double // e.g., 4.0, 3.3
+    val name: String,       // e.g., "Purposive Communication"
+    val code: String,       // e.g., "GE 101"
+    val units: Int,         // PH colleges use "Units" (usually 3.0)
+    val schedule: String,   // e.g., "MWF 10:00 - 11:30 AM"
+    val grade: Double? = null,
+    val yearLevel: String,  // "1st Year", "2nd Year"
+    val semester: String    // "1st Sem", "2nd Sem", "Summer"
 )
 
 // --- 3. NOTIFICATION LOGIC ---
@@ -165,11 +177,14 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
         private set
     var notes = mutableStateListOf<BrainNote>()
         private set
-    var courses = mutableStateListOf<Course>()
+    var subjects = mutableStateListOf<Subject>()
         private set
-    // Updated UserProfile to handle imageUri and category
     var userProfile by mutableStateOf(UserProfile())
         private set
+
+    // Filtering State
+    var selectedYear by mutableStateOf("1st Year")
+    var selectedSem by mutableStateOf("1st Sem")
 
     // Timer State
     var timerDuration by mutableLongStateOf(25 * 60 * 1000L)
@@ -184,18 +199,45 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
         loadData()
     }
 
-    // --- Profile & Data Actions ---
-
-    // FIX: Ensure this function is closed correctly with '}'
+    // --- Profile ---
     fun updateProfile(name: String, school: String, bio: String, avatarId: Int, imageUri: String?, category: String) {
         userProfile = UserProfile(name, school, bio, avatarId, imageUri, category)
         saveData()
     }
 
-    // This is the function giving you the error
+    // --- Subjects ---
+    fun addSubject(name: String, code: String, units: Int, schedule: String) {
+        val newSubject = Subject(name = name, code = code, units = units, schedule = schedule, yearLevel = selectedYear, semester = selectedSem)
+        subjects.add(0, newSubject)
+        saveData()
+    }
+
+    fun updateSubjectGrade(subject: Subject, newGrade: Double) {
+        val index = subjects.indexOfFirst { it.id == subject.id }
+        if (index != -1) {
+            subjects[index] = subjects[index].copy(grade = newGrade)
+            saveData()
+        }
+    }
+
+    fun deleteSubject(subject: Subject) {
+        subjects.remove(subject)
+        saveData()
+    }
+
+    fun calculateSemGWA(): Double {
+        val filtered = subjects.filter { it.yearLevel == selectedYear && it.semester == selectedSem && it.grade != null }
+        if (filtered.isEmpty()) return 0.0
+        val totalUnits = filtered.sumOf { it.units }
+        val totalPoints = filtered.sumOf { (it.grade ?: 0.0) * it.units }
+        return if (totalUnits > 0) totalPoints / totalUnits else 0.0
+    }
+
+    // --- Tasks (Assignments) ---
     fun addAssignment(title: String, deadline: Long, category: String) {
         val newItem = Assignment(title = title, deadline = deadline, category = category)
         assignments.add(0, newItem)
+        assignments.sortBy { it.deadline } // Sort by deadline automatically
         saveData()
         scheduleNotification(newItem)
     }
@@ -213,6 +255,7 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
         saveData()
     }
 
+    // --- Notes ---
     fun addNote(content: String) {
         notes.add(0, BrainNote(content = content, colorIndex = (0..3).random()))
         saveData()
@@ -223,26 +266,7 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
         saveData()
     }
 
-    // NEW: Course Actions
-    fun addCourse(name: String, credits: Int, gradeLabel: String, gradePoint: Double) {
-        courses.add(0, Course(name = name, credits = credits, gradeLabel = gradeLabel, gradePoint = gradePoint))
-        saveData()
-    }
-
-    fun deleteCourse(course: Course) {
-        courses.remove(course)
-        saveData()
-    }
-
-    // NEW: Calculate GPA
-    fun calculateGPA(): Double {
-        if (courses.isEmpty()) return 0.0
-        val totalPoints = courses.sumOf { it.gradePoint * it.credits }
-        val totalCredits = courses.sumOf { it.credits }
-        return if (totalCredits > 0) totalPoints / totalCredits else 0.0
-    }
-
-    // --- Timer Actions ---
+    // --- Timer ---
     fun toggleTimer() {
         if (isTimerRunning) pauseTimer() else startTimer()
     }
@@ -300,7 +324,7 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
         val editor = prefs.edit()
         editor.putString("assignments", gson.toJson(assignments))
         editor.putString("notes", gson.toJson(notes))
-        editor.putString("courses", gson.toJson(courses))
+        editor.putString("subjects", gson.toJson(subjects))
         editor.putString("profile", gson.toJson(userProfile))
         editor.apply()
     }
@@ -308,12 +332,12 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
     private fun loadData() {
         val assignmentJson = prefs.getString("assignments", null)
         val noteJson = prefs.getString("notes", null)
-        val coursesJson = prefs.getString("courses", null)
+        val subjectJson = prefs.getString("subjects", null)
         val profileJson = prefs.getString("profile", null)
 
         if (assignmentJson != null) assignments.addAll(gson.fromJson(assignmentJson, object : TypeToken<List<Assignment>>() {}.type))
         if (noteJson != null) notes.addAll(gson.fromJson(noteJson, object : TypeToken<List<BrainNote>>() {}.type))
-        if (coursesJson != null) courses.addAll(gson.fromJson(coursesJson, object : TypeToken<List<Course>>() {}.type))
+        if (subjectJson != null) subjects.addAll(gson.fromJson(subjectJson, object : TypeToken<List<Subject>>() {}.type))
         if (profileJson != null) userProfile = gson.fromJson(profileJson, UserProfile::class.java)
     }
 
@@ -322,6 +346,7 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
         return assignments.count { it.isCompleted }.toFloat() / assignments.size.toFloat()
     }
 }
+
 // --- 5. UI (COMPOSABLES) ---
 
 class MainActivity : ComponentActivity() {
@@ -386,7 +411,6 @@ fun StudentApp(viewModel: StudentViewModel) {
 
     Scaffold(
         floatingActionButton = {
-            // Show FAB for Assignments, Notes, and Grades
             if (selectedTab != 2) {
                 FloatingActionButton(
                     onClick = { showAddDialog = true },
@@ -402,7 +426,7 @@ fun StudentApp(viewModel: StudentViewModel) {
                 NavigationBarItem(selected = selectedTab == 0, onClick = { selectedTab = 0 }, icon = { Icon(Icons.AutoMirrored.Filled.Assignment, "Tasks") }, label = { Text("Tasks") })
                 NavigationBarItem(selected = selectedTab == 1, onClick = { selectedTab = 1 }, icon = { Icon(Icons.Default.Lightbulb, "Notes") }, label = { Text("Notes") })
                 NavigationBarItem(selected = selectedTab == 2, onClick = { selectedTab = 2 }, icon = { Icon(Icons.Default.Timer, "Focus") }, label = { Text("Focus") })
-                NavigationBarItem(selected = selectedTab == 3, onClick = { selectedTab = 3 }, icon = { Icon(Icons.Outlined.Grade, "Grades") }, label = { Text("Grades") })
+                NavigationBarItem(selected = selectedTab == 3, onClick = { selectedTab = 3 }, icon = { Icon(Icons.Default.Book, "Subjects") }, label = { Text("Subjects") })
             }
         }
     ) { padding ->
@@ -416,7 +440,7 @@ fun StudentApp(viewModel: StudentViewModel) {
                 }
                 1 -> NoteGrid(viewModel.notes) { viewModel.deleteNote(it) }
                 2 -> FocusScreen(viewModel)
-                3 -> GradesScreen(viewModel)
+                3 -> SubjectsScreen(viewModel)
             }
         }
 
@@ -424,18 +448,18 @@ fun StudentApp(viewModel: StudentViewModel) {
             when (selectedTab) {
                 0 -> AddAssignmentDialog({ showAddDialog = false }) { t, d, c -> viewModel.addAssignment(t, d, c); showAddDialog = false }
                 1 -> AddNoteDialog({ showAddDialog = false }) { c -> viewModel.addNote(c); showAddDialog = false }
-                3 -> AddCourseDialog({ showAddDialog = false }) { n, cr, gl, gp -> viewModel.addCourse(n, cr, gl, gp); showAddDialog = false }
+                3 -> AddSubjectDialog({ showAddDialog = false }) { name, code, units, sched ->
+                    viewModel.addSubject(name, code, units, sched)
+                    showAddDialog = false
+                }
             }
         }
-
-        // In StudentApp composable
 
         if (showProfileDialog) {
             ProfileDialog(
                 profile = viewModel.userProfile,
                 onDismiss = { showProfileDialog = false },
                 onConfirm = { name, school, bio, avatarId, imgUri, cat ->
-                    // Pass all the new parameters to the ViewModel
                     viewModel.updateProfile(name, school, bio, avatarId, imgUri, cat)
                     showProfileDialog = false
                 }
@@ -446,60 +470,19 @@ fun StudentApp(viewModel: StudentViewModel) {
 
 // --- UI SECTIONS ---
 
-// In MainActivity.kt
-
 @Composable
 fun TopHeader(profile: UserProfile, onProfileClick: () -> Unit) {
-    // 6 Preset Avatars
-    val avatars = listOf(
-        Icons.Default.Face,
-        Icons.Default.SentimentVerySatisfied,
-        Icons.Default.SmartToy,
-        Icons.Default.Star,
-        Icons.Default.AccountCircle,
-        Icons.Default.Pets
-    )
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(24.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    val avatars = listOf(Icons.Default.Face, Icons.Default.SentimentVerySatisfied, Icons.Default.SmartToy, Icons.Default.Star, Icons.Default.AccountCircle, Icons.Default.Pets)
+    Row(modifier = Modifier.fillMaxWidth().padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                "Hello, ${profile.name}",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = TextDark
-            )
-            // SHOW CATEGORY AND SCHOOL
-            Text(
-                "${profile.category} • ${profile.school}",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextGray
-            )
-            // SHOW BIO
+            Text("Hello, ${profile.name}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = TextDark)
+            Text("${profile.category} • ${profile.school}", style = MaterialTheme.typography.bodySmall, color = TextGray)
             Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                "\"${profile.bio}\"",
-                style = MaterialTheme.typography.bodyMedium,
-                fontStyle = FontStyle.Italic,
-                color = DeepViolet
-            )
+            Text("\"${profile.bio}\"", style = MaterialTheme.typography.bodyMedium, fontStyle = FontStyle.Italic, color = DeepViolet)
         }
-
-        // PROFILE IMAGE LOGIC
-        Surface(
-            shape = CircleShape,
-            color = SoftViolet.copy(alpha = 0.2f),
-            modifier = Modifier
-                .size(70.dp) // Made it slightly larger
-                .clickable { onProfileClick() }
-        ) {
+        Surface(shape = CircleShape, color = SoftViolet.copy(alpha = 0.2f), modifier = Modifier.size(70.dp).clickable { onProfileClick() }) {
             Box(contentAlignment = Alignment.Center) {
                 if (profile.imageUri != null) {
-                    // Load Gallery Image using Coil
                     coil.compose.AsyncImage(
                         model = profile.imageUri,
                         contentDescription = "Profile Photo",
@@ -507,14 +490,8 @@ fun TopHeader(profile: UserProfile, onProfileClick: () -> Unit) {
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    // Fallback to Preset Icon
                     val safeAvatarId = profile.avatarId.coerceIn(0, avatars.lastIndex)
-                    Icon(
-                        avatars[safeAvatarId],
-                        "Profile",
-                        tint = DeepViolet,
-                        modifier = Modifier.size(40.dp)
-                    )
+                    Icon(avatars[safeAvatarId], "Profile", tint = DeepViolet, modifier = Modifier.size(40.dp))
                 }
             }
         }
@@ -549,9 +526,25 @@ fun AssignmentCard(item: Assignment, onToggle: (Assignment) -> Unit, onDelete: (
     val cardColor = if (item.isCompleted) OffWhite else CardWhite
     val textColor = if (item.isCompleted) Color.Gray else TextDark
     val textDeco = if (item.isCompleted) TextDecoration.LineThrough else TextDecoration.None
-    val badgeColor = when (item.category) { "Homework" -> CatHomework; "Exam" -> CatExam; "Project" -> CatProject; else -> CatPersonal }
 
-    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = cardColor), elevation = CardDefaults.cardElevation(if (item.isCompleted) 0.dp else 4.dp)) {
+    // Updated PH Categories
+    val badgeColor = when (item.category) {
+        "Activity" -> CatActivity
+        "Quiz" -> CatQuiz
+        "Major Exam" -> CatExam
+        "Thesis/Research" -> CatThesis
+        else -> CatOrg
+    }
+
+    // Urgent logic: Red border if < 24 hours and not done
+    val borderStroke = if (item.isUrgent()) androidx.compose.foundation.BorderStroke(1.dp, WarningRed) else null
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = cardColor),
+        elevation = CardDefaults.cardElevation(if (item.isCompleted) 0.dp else 4.dp),
+        border = borderStroke
+    ) {
         Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             FilledIconToggleButton(checked = item.isCompleted, onCheckedChange = { onToggle(item) }, colors = IconButtonDefaults.filledIconToggleButtonColors(containerColor = OffWhite, contentColor = Color.Gray, checkedContainerColor = ElectricTeal, checkedContentColor = Color.White)) {
                 if (item.isCompleted) Icon(Icons.Default.Check, "Done") else Icon(Icons.Default.Circle, "Pending", tint = Color.LightGray)
@@ -565,7 +558,10 @@ fun AssignmentCard(item: Assignment, onToggle: (Assignment) -> Unit, onDelete: (
                         Text(item.category, color = badgeColor, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(6.dp, 2.dp))
                     }
                     Spacer(Modifier.width(8.dp))
-                    Text(item.getFormattedDate(), style = MaterialTheme.typography.labelMedium, color = TextGray)
+
+                    // Shows Time now! e.g. "Today at 11:59 PM"
+                    val dateText = if(item.isUrgent()) "DUE SOON: ${item.getFormattedDate()}" else item.getFormattedDate()
+                    Text(dateText, style = MaterialTheme.typography.labelMedium, color = if(item.isUrgent()) WarningRed else TextGray)
                 }
             }
             IconButton({ onDelete(item) }) { Icon(Icons.Outlined.Delete, "Delete", tint = Color.Gray) }
@@ -619,127 +615,102 @@ fun FocusScreen(viewModel: StudentViewModel) {
     }
 }
 
-// In MainActivity.kt
-
 @Composable
-fun GradesScreen(viewModel: StudentViewModel) {
-    // FIX 1: Use Kotlin's safe formatting extension instead of String.format
-    // This prevents potential locale or format crashes
-    val gpa = viewModel.calculateGPA()
-    val formattedGPA = "%.2f".format(gpa)
+fun SubjectsScreen(viewModel: StudentViewModel) {
+    val currentSubjects = viewModel.subjects.filter {
+        it.yearLevel == viewModel.selectedYear && it.semester == viewModel.selectedSem
+    }
 
-    LazyColumn(
-        contentPadding = PaddingValues(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = DeepViolet),
-                elevation = CardDefaults.cardElevation(8.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        "Cumulative GPA",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White.copy(alpha = 0.8f)
-                    )
-                    Text(
-                        formattedGPA,
-                        style = MaterialTheme.typography.displayLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Text(
-                        "Keep pushing! 🚀",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Gold
-                    )
+    val gwa = viewModel.calculateSemGWA()
+    var showGradeDialog by remember { mutableStateOf<Subject?>(null) }
+
+    Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+        Text("Academic Year", style = MaterialTheme.typography.labelMedium, color = TextGray)
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            YearSemDropdown(value = viewModel.selectedYear, options = listOf("1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year"), onValueChange = { viewModel.selectedYear = it })
+            YearSemDropdown(value = viewModel.selectedSem, options = listOf("1st Sem", "2nd Sem", "Summer"), onValueChange = { viewModel.selectedSem = it })
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = DeepViolet), elevation = CardDefaults.cardElevation(8.dp)) {
+            Row(modifier = Modifier.padding(20.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Column {
+                    Text("Semester GWA", color = Color.White.copy(0.8f))
+                    Text(if (gwa > 0) "%.2f".format(gwa) else "No Grades", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = Gold)
                 }
+                Icon(Icons.Outlined.Grade, null, tint = Color.White.copy(0.3f), modifier = Modifier.size(48.dp))
             }
         }
-        item {
-            Text(
-                "Courses",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-        }
 
-        if (viewModel.courses.isEmpty()) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("No courses yet. Tap + to add one!", color = TextGray)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text("${viewModel.selectedYear} - ${viewModel.selectedSem} Subjects", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+        if (currentSubjects.isEmpty()) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.AutoMirrored.Filled.Assignment, null, tint = Color.LightGray, modifier = Modifier.size(64.dp))
+                    Text("No subjects added.", color = TextGray)
+                    Text("Tap + to enroll subjects.", color = TextGray)
                 }
             }
         } else {
-            // FIX 2: Added a unique key for performance and stability
-            items(viewModel.courses, key = { it.id }) { course ->
-                CourseCard(course) { viewModel.deleteCourse(course) }
+            LazyColumn(contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp), verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.weight(1f)) {
+                items(currentSubjects, key = { it.id }) { subject ->
+                    SubjectItem(subject, onClick = { showGradeDialog = subject }, onDelete = { viewModel.deleteSubject(subject) })
+                }
             }
         }
+    }
+
+    if (showGradeDialog != null) {
+        AddGradeDialog(subject = showGradeDialog!!, onDismiss = { showGradeDialog = null }, onConfirm = { grade -> viewModel.updateSubjectGrade(showGradeDialog!!, grade); showGradeDialog = null })
     }
 }
 
 @Composable
-fun CourseCard(course: Course, onDelete: () -> Unit) {
-    // FIX 3: Robust null safety. If data is corrupted (e.g., from Gson),
-    // these fields might be null. We use "?:" to provide a default value so it doesn't crash.
-    val gradeColor = when {
-        course.gradePoint >= 4.0 -> GradeA
-        course.gradePoint >= 3.0 -> GradeB
-        course.gradePoint >= 2.0 -> GradeC
-        course.gradePoint >= 1.0 -> GradeD
-        else -> GradeF
-    }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = CardWhite),
-        elevation = CardDefaults.cardElevation(2.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
+fun SubjectItem(subject: Subject, onClick: () -> Unit, onDelete: () -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = CardWhite), elevation = CardDefaults.cardElevation(2.dp), modifier = Modifier.clickable { onClick() }) {
+        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Surface(color = OffWhite, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(50.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    Text(subject.units.toString(), fontWeight = FontWeight.Bold, color = DeepViolet)
+                    Text("Units", style = MaterialTheme.typography.labelSmall, color = TextGray, fontSize = 9.sp)
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                // Safe access to name
-                Text(
-                    course.name ?: "Unknown Course",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = TextDark
-                )
-                Text(
-                    "${course.credits} Credits",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextGray
-                )
+                Text(subject.code, style = MaterialTheme.typography.labelSmall, color = ElectricTeal, fontWeight = FontWeight.Bold)
+                Text(subject.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(subject.schedule, style = MaterialTheme.typography.bodySmall, color = TextGray)
             }
-            Surface(
-                color = gradeColor.copy(alpha = 0.1f),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                // Safe access to gradeLabel
-                Text(
-                    course.gradeLabel ?: "-",
-                    color = gradeColor,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                )
+            if (subject.grade != null) {
+                val g = subject.grade
+                val color = if (g <= 1.25) GradeA else if (g <= 1.75) GradeB else if (g <= 2.5) GradeC else if (g <= 3.0) GradeD else GradeF
+                Text("%.1f".format(g), fontWeight = FontWeight.Bold, color = color)
+            } else {
+                Text("--", color = Color.LightGray)
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Outlined.Delete, "Delete", tint = Color.LightGray)
-            }
+            Spacer(modifier = Modifier.width(8.dp))
+            IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) { Icon(Icons.Outlined.Delete, "Del", tint = Color.LightGray) }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun YearSemDropdown(value: String, options: List<String>, onValueChange: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        FilterChip(
+            selected = true, onClick = { expanded = true }, label = { Text(value) },
+            trailingIcon = { Icon(Icons.Default.ArrowDropDown, null) },
+            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = CardWhite, selectedLabelColor = DeepViolet),
+            border = FilterChipDefaults.filterChipBorder(borderColor = Color.LightGray, selectedBorderColor = DeepViolet, enabled = true, selected = true)
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option -> DropdownMenuItem(text = { Text(option) }, onClick = { onValueChange(option); expanded = false }) }
         }
     }
 }
@@ -755,27 +726,89 @@ fun formatTime(millis: Long): String {
 @Composable
 fun AddAssignmentDialog(onDismiss: () -> Unit, onConfirm: (String, Long, String) -> Unit) {
     var title by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf("Homework") }
-    val datePickerState = rememberDatePickerState(initialSelectedDateMillis = System.currentTimeMillis())
-    var showDatePicker by remember { mutableStateOf(false) }
+    // PH Context: Changed "Homework" to "Activity", etc.
+    var selectedCategory by remember { mutableStateOf("Activity") }
+    val categories = listOf("Activity", "Quiz", "Major Exam", "Thesis/Research", "Org Work")
 
+    // Date & Time Logic
+    val calendar = Calendar.getInstance()
+    val datePickerState = rememberDatePickerState(initialSelectedDateMillis = System.currentTimeMillis())
+    val timePickerState = rememberTimePickerState(
+        initialHour = calendar.get(Calendar.HOUR_OF_DAY),
+        initialMinute = calendar.get(Calendar.MINUTE),
+        is24Hour = false
+    )
+
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
+
+    // Formatting for display
+    val selectedDate = Date(datePickerState.selectedDateMillis ?: System.currentTimeMillis())
+    val dateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+
+    // Format Time for Display
+    val timeText = String.format("%02d:%02d %s",
+        if(timePickerState.hour % 12 == 0) 12 else timePickerState.hour % 12,
+        timePickerState.minute,
+        if(timePickerState.hour >= 12) "PM" else "AM"
+    )
+
+    // Dialogs for Date & Time
     if (showDatePicker) {
         DatePickerDialog(onDismissRequest = { showDatePicker = false }, confirmButton = { TextButton({ showDatePicker = false }) { Text("OK") } }) { DatePicker(state = datePickerState) }
     }
 
+    if (showTimePicker) {
+        AlertDialog(
+            onDismissRequest = { showTimePicker = false },
+            confirmButton = { TextButton(onClick = { showTimePicker = false }) { Text("OK") } },
+            text = { TimeInput(state = timePickerState) } // Use TimeInput for keyboard entry or TimePicker for clock dial
+        )
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New Assignment") },
+        title = { Text("New Task") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(datePickerState.selectedDateMillis ?: System.currentTimeMillis())), onValueChange = {}, label = { Text("Deadline") }, readOnly = true, trailingIcon = { IconButton({ showDatePicker = true }) { Icon(Icons.Default.DateRange, "Pick Date") } }, modifier = Modifier.fillMaxWidth().clickable { showDatePicker = true })
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    listOf("Homework", "Exam", "Project", "Personal").take(2).forEach { cat -> FilterChip(selected = selectedCategory == cat, onClick = { selectedCategory = cat }, label = { Text(cat) }) }
+                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title (e.g., Chapter 1 Draft)") }, modifier = Modifier.fillMaxWidth())
+
+                // DATE Selector
+                OutlinedTextField(
+                    value = dateFormat.format(selectedDate),
+                    onValueChange = {}, label = { Text("Date") }, readOnly = true,
+                    trailingIcon = { IconButton({ showDatePicker = true }) { Icon(Icons.Default.DateRange, "Pick Date") } },
+                    modifier = Modifier.fillMaxWidth().clickable { showDatePicker = true }
+                )
+
+                // TIME Selector
+                OutlinedTextField(
+                    value = timeText,
+                    onValueChange = {}, label = { Text("Time") }, readOnly = true,
+                    trailingIcon = { IconButton({ showTimePicker = true }) { Icon(Icons.Default.AccessTime, "Pick Time") } },
+                    modifier = Modifier.fillMaxWidth().clickable { showTimePicker = true }
+                )
+
+                // Category Chips
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    categories.take(3).forEach { cat ->
+                        FilterChip(selected = selectedCategory == cat, onClick = { selectedCategory = cat }, label = { Text(cat, fontSize = 10.sp) })
+                    }
                 }
             }
         },
-        confirmButton = { Button({ if (title.isNotEmpty()) onConfirm(title, datePickerState.selectedDateMillis ?: System.currentTimeMillis(), selectedCategory) }, colors = ButtonDefaults.buttonColors(containerColor = DeepViolet)) { Text("Add") } },
+        confirmButton = {
+            Button({
+                if (title.isNotEmpty()) {
+                    // Combine Date + Time
+                    val c = Calendar.getInstance()
+                    c.timeInMillis = datePickerState.selectedDateMillis ?: System.currentTimeMillis()
+                    c.set(Calendar.HOUR_OF_DAY, timePickerState.hour)
+                    c.set(Calendar.MINUTE, timePickerState.minute)
+                    onConfirm(title, c.timeInMillis, selectedCategory)
+                }
+            }, colors = ButtonDefaults.buttonColors(containerColor = DeepViolet)) { Text("Add Task") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
@@ -791,73 +824,47 @@ fun AddNoteDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     )
 }
 
-// NEW: Add Course Dialog
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddCourseDialog(onDismiss: () -> Unit, onConfirm: (String, Int, String, Double) -> Unit) {
+fun AddSubjectDialog(onDismiss: () -> Unit, onConfirm: (String, String, Int, String) -> Unit) {
     var name by remember { mutableStateOf("") }
-    var credits by remember { mutableStateOf("3") }
-
-    // Grade Options: Label mapped to Point
-    val grades = listOf(
-        "A" to 4.0, "A-" to 3.7, "B+" to 3.3, "B" to 3.0,
-        "B-" to 2.7, "C+" to 2.3, "C" to 2.0, "D" to 1.0, "F" to 0.0
-    )
-    var expanded by remember { mutableStateOf(false) }
-    var selectedGrade by remember { mutableStateOf(grades[0]) }
+    var code by remember { mutableStateOf("") }
+    var units by remember { mutableStateOf("3") }
+    var schedule by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add Course Grade") },
+        title = { Text("Add Subject") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Course Name (e.g., Math 101)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = credits,
-                    onValueChange = { if (it.all { char -> char.isDigit() }) credits = it },
-                    label = { Text("Credits (e.g., 3)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                // Dropdown for Grade
-                ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
-                    OutlinedTextField(
-                        value = "${selectedGrade.first} (${selectedGrade.second})",
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Grade Achieved") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                        grades.forEach { grade ->
-                            DropdownMenuItem(
-                                text = { Text("${grade.first} (${grade.second})") },
-                                onClick = {
-                                    selectedGrade = grade
-                                    expanded = false
-                                }
-                            )
-                        }
-                    }
-                }
+                OutlinedTextField(value = code, onValueChange = { code = it }, label = { Text("Subject Code (e.g., IT 101)") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Subject Name") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = units, onValueChange = { if(it.all { c -> c.isDigit() }) units = it }, label = { Text("Units") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = schedule, onValueChange = { schedule = it }, label = { Text("Schedule (e.g., MWF 9-10AM)") }, modifier = Modifier.fillMaxWidth())
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    if (name.isNotEmpty() && credits.isNotEmpty()) {
-                        onConfirm(name, credits.toIntOrNull() ?: 0, selectedGrade.first, selectedGrade.second)
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = DeepViolet)
-            ) { Text("Add Course") }
+            Button(onClick = { if (name.isNotEmpty() && code.isNotEmpty()) onConfirm(name, code, units.toIntOrNull() ?: 3, schedule) }, colors = ButtonDefaults.buttonColors(containerColor = DeepViolet)) { Text("Enroll") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+fun AddGradeDialog(subject: Subject, onDismiss: () -> Unit, onConfirm: (Double) -> Unit) {
+    var gradeInput by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Enter Final Grade") },
+        text = {
+            Column {
+                Text("For ${subject.code}: ${subject.name}", style = MaterialTheme.typography.bodySmall, color = TextGray)
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(value = gradeInput, onValueChange = { gradeInput = it }, label = { Text("Grade (e.g., 1.50 or 95)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            Button(onClick = { val g = gradeInput.toDoubleOrNull(); if (g != null) onConfirm(g) }, colors = ButtonDefaults.buttonColors(containerColor = DeepViolet)) { Text("Save Grade") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
@@ -873,200 +880,55 @@ fun ProfileDialog(
     var name by remember { mutableStateOf(profile.name) }
     var school by remember { mutableStateOf(profile.school) }
     var bio by remember { mutableStateOf(profile.bio) }
-
-    // Avatar & Gallery State
     var avatarId by remember { mutableIntStateOf(profile.avatarId) }
-    var imageUri by remember { mutableStateOf<android.net.Uri?>(
-        if (profile.imageUri != null) android.net.Uri.parse(profile.imageUri) else null
-    )}
-
-    // Categories
-    val categories = listOf(
-        "Computer Science",
-        "Business & Eco",
-        "Arts & Design",
-        "Engineering",
-        "Medicine",
-        "Law & Politics"
-    )
+    var imageUri by remember { mutableStateOf<android.net.Uri?>(if (profile.imageUri != null) android.net.Uri.parse(profile.imageUri) else null) }
+    val categories = listOf("Computer Science", "Business & Eco", "Arts & Design", "Engineering", "Medicine", "Law & Politics")
     var selectedCategory by remember { mutableStateOf(profile.category) }
     var expandedCategory by remember { mutableStateOf(false) }
 
-    // Gallery Launcher
-    val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: android.net.Uri? ->
-        if (uri != null) {
-            imageUri = uri
-        }
-    }
-
-    val avatars = listOf(
-        Icons.Default.Face, Icons.Default.SentimentVerySatisfied,
-        Icons.Default.SmartToy, Icons.Default.Star,
-        Icons.Default.AccountCircle, Icons.Default.Pets
-    )
+    val galleryLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: android.net.Uri? -> if (uri != null) imageUri = uri }
+    val avatars = listOf(Icons.Default.Face, Icons.Default.SentimentVerySatisfied, Icons.Default.SmartToy, Icons.Default.Star, Icons.Default.AccountCircle, Icons.Default.Pets)
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Text(
-                "Edit Profile",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = DeepViolet
-            )
-        },
+        title = { Text("Edit Profile", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = DeepViolet) },
         text = {
-            // Use a LazyColumn so it scrolls on small screens
-            LazyColumn(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                // 1. IMAGE PREVIEW SECTION
+            LazyColumn(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
                 item {
                     Box(contentAlignment = Alignment.BottomEnd) {
-                        Surface(
-                            shape = CircleShape,
-                            color = OffWhite,
-                            border = androidx.compose.foundation.BorderStroke(2.dp, ElectricTeal),
-                            modifier = Modifier.size(100.dp)
-                        ) {
+                        Surface(shape = CircleShape, color = OffWhite, border = androidx.compose.foundation.BorderStroke(2.dp, ElectricTeal), modifier = Modifier.size(100.dp)) {
                             if (imageUri != null) {
-                                coil.compose.AsyncImage(
-                                    model = imageUri,
-                                    contentDescription = null,
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                )
+                                coil.compose.AsyncImage(model = imageUri, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop)
                             } else {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        avatars[avatarId.coerceIn(0, avatars.lastIndex)],
-                                        null,
-                                        tint = DeepViolet,
-                                        modifier = Modifier.size(50.dp)
-                                    )
-                                }
+                                Box(contentAlignment = Alignment.Center) { Icon(avatars[avatarId.coerceIn(0, avatars.lastIndex)], null, tint = DeepViolet, modifier = Modifier.size(50.dp)) }
                             }
                         }
-                        // Gallery Button (Small Fab)
-                        SmallFloatingActionButton(
-                            onClick = { galleryLauncher.launch("image/*") },
-                            containerColor = Gold,
-                            contentColor = TextDark
-                        ) {
-                            Icon(Icons.Default.Edit, "Pick Photo")
-                        }
+                        SmallFloatingActionButton(onClick = { galleryLauncher.launch("image/*") }, containerColor = Gold, contentColor = TextDark) { Icon(Icons.Default.Edit, "Pick Photo") }
                     }
                 }
-
-                // 2. PRESET AVATARS ROW
                 item {
                     Text("Or pick an avatar:", style = MaterialTheme.typography.labelSmall, color = TextGray)
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                         avatars.forEachIndexed { index, icon ->
                             val isSelected = (avatarId == index && imageUri == null)
-                            IconButton(onClick = {
-                                avatarId = index
-                                imageUri = null // Clear gallery URI if preset is picked
-                            }) {
-                                Icon(
-                                    icon,
-                                    contentDescription = null,
-                                    tint = if (isSelected) DeepViolet else Color.LightGray,
-                                    modifier = Modifier.size(if (isSelected) 32.dp else 24.dp)
-                                )
-                            }
+                            IconButton(onClick = { avatarId = index; imageUri = null }) { Icon(icon, contentDescription = null, tint = if (isSelected) DeepViolet else Color.LightGray, modifier = Modifier.size(if (isSelected) 32.dp else 24.dp)) }
                         }
                     }
                 }
-
-                // 3. TEXT FIELDS
+                item { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Student Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true) }
                 item {
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        label = { Text("Student Name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                }
-
-                item {
-                    // CATEGORY DROPDOWN (6 Categories)
-                    ExposedDropdownMenuBox(
-                        expanded = expandedCategory,
-                        onExpandedChange = { expandedCategory = !expandedCategory },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        OutlinedTextField(
-                            value = selectedCategory,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Major / Category") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedCategory) },
-                            modifier = Modifier.menuAnchor().fillMaxWidth()
-                        )
-                        ExposedDropdownMenu(
-                            expanded = expandedCategory,
-                            onDismissRequest = { expandedCategory = false }
-                        ) {
-                            categories.forEach { category ->
-                                DropdownMenuItem(
-                                    text = { Text(category) },
-                                    onClick = {
-                                        selectedCategory = category
-                                        expandedCategory = false
-                                    }
-                                )
-                            }
+                    ExposedDropdownMenuBox(expanded = expandedCategory, onExpandedChange = { expandedCategory = !expandedCategory }, modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(value = selectedCategory, onValueChange = {}, readOnly = true, label = { Text("Major / Category") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedCategory) }, modifier = Modifier.menuAnchor().fillMaxWidth())
+                        ExposedDropdownMenu(expanded = expandedCategory, onDismissRequest = { expandedCategory = false }) {
+                            categories.forEach { category -> DropdownMenuItem(text = { Text(category) }, onClick = { selectedCategory = category; expandedCategory = false }) }
                         }
                     }
                 }
-
-                item {
-                    OutlinedTextField(
-                        value = school,
-                        onValueChange = { school = it },
-                        label = { Text("School / University") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                item {
-                    OutlinedTextField(
-                        value = bio,
-                        onValueChange = { bio = it },
-                        label = { Text("Bio / Status") },
-                        modifier = Modifier.fillMaxWidth(),
-                        maxLines = 3
-                    )
-                }
+                item { OutlinedTextField(value = school, onValueChange = { school = it }, label = { Text("School / University") }, modifier = Modifier.fillMaxWidth()) }
+                item { OutlinedTextField(value = bio, onValueChange = { bio = it }, label = { Text("Bio / Status") }, modifier = Modifier.fillMaxWidth(), maxLines = 3) }
             }
         },
-        confirmButton = {
-            Button(
-                onClick = {
-                    onConfirm(
-                        name,
-                        school,
-                        bio,
-                        avatarId,
-                        imageUri?.toString(), // Convert URI to String
-                        selectedCategory
-                    )
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = DeepViolet)
-            ) {
-                Text("Save Profile")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
+        confirmButton = { Button(onClick = { onConfirm(name, school, bio, avatarId, imageUri?.toString(), selectedCategory) }, colors = ButtonDefaults.buttonColors(containerColor = DeepViolet)) { Text("Save Profile") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
