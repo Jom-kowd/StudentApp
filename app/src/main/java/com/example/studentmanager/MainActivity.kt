@@ -115,7 +115,9 @@ data class UserProfile(
     val name: String = "Student",
     val school: String = "Android Academy",
     val bio: String = "Coding my future.",
-    val avatarId: Int = 0
+    val avatarId: Int = 0,
+    val imageUri: String? = null, // NEW: Stores the URI of the gallery photo
+    val category: String = "Computer Science" // NEW: The chosen category
 )
 
 // NEW: Course Model for Grade Tracking
@@ -163,8 +165,9 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
         private set
     var notes = mutableStateListOf<BrainNote>()
         private set
-    var courses = mutableStateListOf<Course>() // NEW: List of courses
+    var courses = mutableStateListOf<Course>()
         private set
+    // Updated UserProfile to handle imageUri and category
     var userProfile by mutableStateOf(UserProfile())
         private set
 
@@ -182,11 +185,14 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // --- Profile & Data Actions ---
-    fun updateProfile(name: String, school: String, bio: String, avatarId: Int) {
-        userProfile = UserProfile(name, school, bio, avatarId)
+
+    // FIX: Ensure this function is closed correctly with '}'
+    fun updateProfile(name: String, school: String, bio: String, avatarId: Int, imageUri: String?, category: String) {
+        userProfile = UserProfile(name, school, bio, avatarId, imageUri, category)
         saveData()
     }
 
+    // This is the function giving you the error
     fun addAssignment(title: String, deadline: Long, category: String) {
         val newItem = Assignment(title = title, deadline = deadline, category = category)
         assignments.add(0, newItem)
@@ -316,7 +322,6 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
         return assignments.count { it.isCompleted }.toFloat() / assignments.size.toFloat()
     }
 }
-
 // --- 5. UI (COMPOSABLES) ---
 
 class MainActivity : ComponentActivity() {
@@ -423,25 +428,94 @@ fun StudentApp(viewModel: StudentViewModel) {
             }
         }
 
+        // In StudentApp composable
+
         if (showProfileDialog) {
-            ProfileDialog(viewModel.userProfile, { showProfileDialog = false }) { n, s, b, a -> viewModel.updateProfile(n, s, b, a); showProfileDialog = false }
+            ProfileDialog(
+                profile = viewModel.userProfile,
+                onDismiss = { showProfileDialog = false },
+                onConfirm = { name, school, bio, avatarId, imgUri, cat ->
+                    // Pass all the new parameters to the ViewModel
+                    viewModel.updateProfile(name, school, bio, avatarId, imgUri, cat)
+                    showProfileDialog = false
+                }
+            )
         }
     }
 }
 
 // --- UI SECTIONS ---
 
+// In MainActivity.kt
+
 @Composable
 fun TopHeader(profile: UserProfile, onProfileClick: () -> Unit) {
-    val avatars = listOf(Icons.Default.Face, Icons.Default.SentimentVerySatisfied, Icons.Default.SmartToy, Icons.Default.Star)
-    Row(modifier = Modifier.fillMaxWidth().padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
+    // 6 Preset Avatars
+    val avatars = listOf(
+        Icons.Default.Face,
+        Icons.Default.SentimentVerySatisfied,
+        Icons.Default.SmartToy,
+        Icons.Default.Star,
+        Icons.Default.AccountCircle,
+        Icons.Default.Pets
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(24.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text("Hello, ${profile.name}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = TextDark)
-            Text(profile.school.ifEmpty { "Ready to learn?" }, style = MaterialTheme.typography.bodySmall, color = TextGray)
+            Text(
+                "Hello, ${profile.name}",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = TextDark
+            )
+            // SHOW CATEGORY AND SCHOOL
+            Text(
+                "${profile.category} • ${profile.school}",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextGray
+            )
+            // SHOW BIO
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "\"${profile.bio}\"",
+                style = MaterialTheme.typography.bodyMedium,
+                fontStyle = FontStyle.Italic,
+                color = DeepViolet
+            )
         }
-        Surface(shape = CircleShape, color = SoftViolet.copy(alpha = 0.2f), modifier = Modifier.size(50.dp).clickable { onProfileClick() }) {
+
+        // PROFILE IMAGE LOGIC
+        Surface(
+            shape = CircleShape,
+            color = SoftViolet.copy(alpha = 0.2f),
+            modifier = Modifier
+                .size(70.dp) // Made it slightly larger
+                .clickable { onProfileClick() }
+        ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(avatars[profile.avatarId], "Profile", tint = DeepViolet, modifier = Modifier.size(32.dp))
+                if (profile.imageUri != null) {
+                    // Load Gallery Image using Coil
+                    coil.compose.AsyncImage(
+                        model = profile.imageUri,
+                        contentDescription = "Profile Photo",
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    // Fallback to Preset Icon
+                    val safeAvatarId = profile.avatarId.coerceIn(0, avatars.lastIndex)
+                    Icon(
+                        avatars[safeAvatarId],
+                        "Profile",
+                        tint = DeepViolet,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
             }
         }
     }
@@ -789,32 +863,210 @@ fun AddCourseDialog(onDismiss: () -> Unit, onConfirm: (String, Int, String, Doub
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileDialog(profile: UserProfile, onDismiss: () -> Unit, onConfirm: (String, String, String, Int) -> Unit) {
+fun ProfileDialog(
+    profile: UserProfile,
+    onDismiss: () -> Unit,
+    onConfirm: (String, String, String, Int, String?, String) -> Unit
+) {
     var name by remember { mutableStateOf(profile.name) }
     var school by remember { mutableStateOf(profile.school) }
     var bio by remember { mutableStateOf(profile.bio) }
+
+    // Avatar & Gallery State
     var avatarId by remember { mutableIntStateOf(profile.avatarId) }
-    val avatars = listOf(Icons.Default.Face, Icons.Default.SentimentVerySatisfied, Icons.Default.SmartToy, Icons.Default.Star)
+    var imageUri by remember { mutableStateOf<android.net.Uri?>(
+        if (profile.imageUri != null) android.net.Uri.parse(profile.imageUri) else null
+    )}
+
+    // Categories
+    val categories = listOf(
+        "Computer Science",
+        "Business & Eco",
+        "Arts & Design",
+        "Engineering",
+        "Medicine",
+        "Law & Politics"
+    )
+    var selectedCategory by remember { mutableStateOf(profile.category) }
+    var expandedCategory by remember { mutableStateOf(false) }
+
+    // Gallery Launcher
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            imageUri = uri
+        }
+    }
+
+    val avatars = listOf(
+        Icons.Default.Face, Icons.Default.SentimentVerySatisfied,
+        Icons.Default.SmartToy, Icons.Default.Star,
+        Icons.Default.AccountCircle, Icons.Default.Pets
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit Student ID") },
+        title = {
+            Text(
+                "Edit Profile",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = DeepViolet
+            )
+        },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    avatars.forEachIndexed { index, icon ->
-                        Surface(shape = CircleShape, color = if (avatarId == index) DeepViolet else OffWhite, modifier = Modifier.size(50.dp).clickable { avatarId = index }.border(2.dp, if (avatarId == index) Gold else Color.Transparent, CircleShape)) {
-                            Box(contentAlignment = Alignment.Center) { Icon(icon, null, tint = if (avatarId == index) Color.White else Color.Gray, modifier = Modifier.size(30.dp)) }
+            // Use a LazyColumn so it scrolls on small screens
+            LazyColumn(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // 1. IMAGE PREVIEW SECTION
+                item {
+                    Box(contentAlignment = Alignment.BottomEnd) {
+                        Surface(
+                            shape = CircleShape,
+                            color = OffWhite,
+                            border = androidx.compose.foundation.BorderStroke(2.dp, ElectricTeal),
+                            modifier = Modifier.size(100.dp)
+                        ) {
+                            if (imageUri != null) {
+                                coil.compose.AsyncImage(
+                                    model = imageUri,
+                                    contentDescription = null,
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                )
+                            } else {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        avatars[avatarId.coerceIn(0, avatars.lastIndex)],
+                                        null,
+                                        tint = DeepViolet,
+                                        modifier = Modifier.size(50.dp)
+                                    )
+                                }
+                            }
+                        }
+                        // Gallery Button (Small Fab)
+                        SmallFloatingActionButton(
+                            onClick = { galleryLauncher.launch("image/*") },
+                            containerColor = Gold,
+                            contentColor = TextDark
+                        ) {
+                            Icon(Icons.Default.Edit, "Pick Photo")
                         }
                     }
                 }
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = school, onValueChange = { school = it }, label = { Text("School") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = bio, onValueChange = { bio = it }, label = { Text("Bio") }, modifier = Modifier.fillMaxWidth())
+
+                // 2. PRESET AVATARS ROW
+                item {
+                    Text("Or pick an avatar:", style = MaterialTheme.typography.labelSmall, color = TextGray)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        avatars.forEachIndexed { index, icon ->
+                            val isSelected = (avatarId == index && imageUri == null)
+                            IconButton(onClick = {
+                                avatarId = index
+                                imageUri = null // Clear gallery URI if preset is picked
+                            }) {
+                                Icon(
+                                    icon,
+                                    contentDescription = null,
+                                    tint = if (isSelected) DeepViolet else Color.LightGray,
+                                    modifier = Modifier.size(if (isSelected) 32.dp else 24.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 3. TEXT FIELDS
+                item {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Student Name") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+
+                item {
+                    // CATEGORY DROPDOWN (6 Categories)
+                    ExposedDropdownMenuBox(
+                        expanded = expandedCategory,
+                        onExpandedChange = { expandedCategory = !expandedCategory },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = selectedCategory,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Major / Category") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedCategory) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = expandedCategory,
+                            onDismissRequest = { expandedCategory = false }
+                        ) {
+                            categories.forEach { category ->
+                                DropdownMenuItem(
+                                    text = { Text(category) },
+                                    onClick = {
+                                        selectedCategory = category
+                                        expandedCategory = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    OutlinedTextField(
+                        value = school,
+                        onValueChange = { school = it },
+                        label = { Text("School / University") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                item {
+                    OutlinedTextField(
+                        value = bio,
+                        onValueChange = { bio = it },
+                        label = { Text("Bio / Status") },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 3
+                    )
+                }
             }
         },
-        confirmButton = { Button({ if (name.isNotEmpty()) onConfirm(name, school, bio, avatarId) }, colors = ButtonDefaults.buttonColors(containerColor = DeepViolet)) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        confirmButton = {
+            Button(
+                onClick = {
+                    onConfirm(
+                        name,
+                        school,
+                        bio,
+                        avatarId,
+                        imageUri?.toString(), // Convert URI to String
+                        selectedCategory
+                    )
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = DeepViolet)
+            ) {
+                Text("Save Profile")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
     )
 }
