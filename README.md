@@ -40,7 +40,7 @@ A comprehensive Android productivity application designed specifically for stude
 
 | Dashboard | Schedule Grid | Focus Timer |
 |:---:|:---:|:---:|
-| ![Dashboard](https://via.placeholder.com/200x400?text=Tasks) | ![Schedule](https://via.placeholder.com/200x400?text=Grid+View) | ![Focus](https://via.placeholder.com/200x400?text=Timer) |
+| ![Dashboard]([https://via.placeholder.com](https://drive.google.com/file/d/1UB_dAqlnEEPqkwbv3MzZ6RlY7PsnCyKT/view?usp=drive_link)/200x400?text=Tasks) | ![Schedule](https://via.placeholder.com/200x400?text=Grid+View) | ![Focus](https://via.placeholder.com/200x400?text=Timer) |
 
 *(Tip: Take screenshots of your running app and upload them to your repo, then link them here!)*
 
@@ -68,4 +68,5 @@ Developed by **Mark Jomar S. Calmateo** * [GitHub](https://github.com/Jom-kowd)
 
 ---
 *Built with ❤️ for students everywhere.*
+
 
