@@ -368,10 +368,51 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
     fun getProgress(): Float = if (assignments.isEmpty()) 0f else assignments.count { it.isCompleted }.toFloat() / assignments.size.toFloat()
 
     // --- PROFILE & TIMER (Keep Existing Logic) ---
+    // --- PROFILE & TIMER ---
+
     fun updateProfile(name: String, school: String, bio: String, avatarId: Int, imageUri: String?, category: String) {
-        val finalImageUri = imageUri
+        // 1. Check if the image is from the gallery (content://)
+        val finalImageUri = if (imageUri != null && imageUri.startsWith("content://")) {
+            // 2. If yes, copy it to our app's private storage
+            copyUriToInternalStorage(android.net.Uri.parse(imageUri))
+        } else {
+            // 3. If it's already a file or null, keep it as is
+            imageUri
+        }
+
         userProfile = UserProfile(name, school, bio, avatarId, finalImageUri, category)
         saveProfile()
+    }
+
+    // --- HELPER FUNCTION TO COPY IMAGE ---
+    private fun copyUriToInternalStorage(uri: android.net.Uri): String? {
+        return try {
+            val context = getApplication<Application>()
+            val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+
+            // Create a unique file name
+            val fileName = "profile_${System.currentTimeMillis()}.jpg"
+            val file = File(context.filesDir, fileName)
+
+            // Delete old profile images to save space (Optional but recommended)
+            context.filesDir.listFiles()?.forEach {
+                if (it.name.startsWith("profile_") && it.name != fileName) {
+                    it.delete()
+                }
+            }
+
+            // Copy the data
+            file.outputStream().use { outputStream ->
+                inputStream.copyTo(outputStream)
+            }
+            inputStream.close()
+
+            // Return the path to the new file
+            android.net.Uri.fromFile(file).toString()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 
     private fun saveProfile() {
