@@ -9,7 +9,7 @@ A comprehensive Android productivity application designed specifically for stude
 * **Create & Track:** Add assignments with deadlines and categories (Quiz, Exam, Project).
 * **Search & Filter:** Instantly find tasks using the search bar or filter by "Urgent" and "Completed".
 * **Trash Bin:** Safely delete tasks with the ability to **Restore** them or **Delete Forever**.
-* **Smart Reminders:** Local notifications for upcoming deadlines.
+* **Smart Reminders:** Local notifications for upcoming deadlines..
 
 ### 📚 Academic Tracker
 * **Subject Enrollment:** Add subjects with specific schedule times (Days, Start/End Time).
