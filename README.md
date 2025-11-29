@@ -2,7 +2,7 @@
 
 A comprehensive Android productivity application designed specifically for students to manage tasks, track academic performance, and stay focused. Built with **Modern Android Development** standards using Kotlin and Jetpack Compose.
 
-![App Banner](https://via.placeholder.com/1200x400?text=Student+Manager+App+Preview)
+![App Banner](https://drive.google.com/file/d/1UB_dAqlnEEPqkwbv3MzZ6RlY7PsnCyKT/view?usp=drive_link)
 *(Note: Replace the link above with a real screenshot of your dashboard once you have one!)*
 
 ## ✨ Features
@@ -68,3 +68,4 @@ Developed by **Mark Jomar S. Calmateo** * [GitHub](https://github.com/Jom-kowd)
 
 ---
 *Built with ❤️ for students everywhere.*
+
