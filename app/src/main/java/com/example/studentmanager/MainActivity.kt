@@ -783,14 +783,56 @@ fun TrashBinScreen(viewModel: StudentViewModel) {
 
 @Composable
 fun NoteGrid(notes: List<BrainNote>, onDelete: (BrainNote) -> Unit) {
-    LazyVerticalGrid(columns = GridCells.Fixed(2), contentPadding = PaddingValues(24.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) { Text("Brain Dump", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+    // State to track which note is being deleted
+    var noteToDelete by remember { mutableStateOf<BrainNote?>(null) }
+
+    // DELETE CONFIRMATION DIALOG
+    if (noteToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { noteToDelete = null },
+            title = { Text("Delete Note?") },
+            text = { Text("Are you sure you want to delete this note?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDelete(noteToDelete!!) // Call the actual delete
+                        noteToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = WarningRed)
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { noteToDelete = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        contentPadding = PaddingValues(24.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) {
+            Text("Brain Dump", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        }
         items(notes) { note ->
             val noteColors = listOf(Color(0xFFFFF9C4), Color(0xFFE1BEE7), Color(0xFFB2DFDB), Color(0xFFFFCCBC))
-            Card(colors = CardDefaults.cardColors(containerColor = noteColors[note.colorIndex % noteColors.size]), modifier = Modifier.height(150.dp)) {
-                Column(modifier = Modifier.padding(16.dp).fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = noteColors[note.colorIndex % noteColors.size]),
+                modifier = Modifier.height(150.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp).fillMaxSize(),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
                     Text(note.content, style = MaterialTheme.typography.bodyMedium, overflow = TextOverflow.Ellipsis)
-                    IconButton({ onDelete(note) }, modifier = Modifier.align(Alignment.End).size(24.dp)) { Icon(Icons.Outlined.Delete, "Delete", tint = TextDark.copy(0.5f)) }
+                    IconButton(
+                        onClick = { noteToDelete = note }, // Trigger the dialog
+                        modifier = Modifier.align(Alignment.End).size(24.dp)
+                    ) {
+                        Icon(Icons.Outlined.Delete, "Delete", tint = TextDark.copy(0.5f))
+                    }
                 }
             }
         }
@@ -800,6 +842,44 @@ fun NoteGrid(notes: List<BrainNote>, onDelete: (BrainNote) -> Unit) {
 @Composable
 fun FocusScreen(viewModel: StudentViewModel) {
     val progress = if (viewModel.timerDuration > 0) viewModel.timeLeft.toFloat() / viewModel.timerDuration.toFloat() else 0f
+
+    // NEW: Custom Timer State
+    var showCustomTimerDialog by remember { mutableStateOf(false) }
+    var customMinutesInput by remember { mutableStateOf("") }
+
+    if (showCustomTimerDialog) {
+        AlertDialog(
+            onDismissRequest = { showCustomTimerDialog = false },
+            title = { Text("Set Custom Timer") },
+            text = {
+                OutlinedTextField(
+                    value = customMinutesInput,
+                    onValueChange = { if (it.all { char -> char.isDigit() }) customMinutesInput = it },
+                    label = { Text("Minutes") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val mins = customMinutesInput.toIntOrNull()
+                        if (mins != null && mins > 0) {
+                            viewModel.setDuration(mins)
+                            showCustomTimerDialog = false
+                            customMinutesInput = ""
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = DeepViolet)
+                ) { Text("Start") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCustomTimerDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Text("Focus Mode", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = DeepViolet)
         Text("Stay productive.", style = MaterialTheme.typography.bodyMedium, color = TextGray)
@@ -819,8 +899,24 @@ fun FocusScreen(viewModel: StudentViewModel) {
             }
         }
         Spacer(Modifier.height(32.dp))
+        // Updated Chips Row
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            listOf(15, 25, 45).forEach { mins -> FilterChip(selected = viewModel.timerDuration == mins * 60 * 1000L, onClick = { viewModel.setDuration(mins) }, label = { Text("$mins min") }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SoftViolet, selectedLabelColor = Color.White)) }
+            listOf(15, 25, 45).forEach { mins ->
+                FilterChip(
+                    selected = viewModel.timerDuration == mins * 60 * 1000L,
+                    onClick = { viewModel.setDuration(mins) },
+                    label = { Text("$mins min") },
+                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SoftViolet, selectedLabelColor = Color.White)
+                )
+            }
+            // Custom Option
+            FilterChip(
+                selected = false,
+                onClick = { showCustomTimerDialog = true },
+                label = { Text("Custom") },
+                leadingIcon = { Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp)) },
+                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SoftViolet, selectedLabelColor = Color.White)
+            )
         }
     }
 }
@@ -833,6 +929,29 @@ fun SubjectsScreen(viewModel: StudentViewModel) {
     val gwa = viewModel.calculateSemGWA()
     var showGradeDialog by remember { mutableStateOf<Subject?>(null) }
     var isGridView by remember { mutableStateOf(false) }
+
+    // NEW: State for Delete Confirmation
+    var subjectToDelete by remember { mutableStateOf<Subject?>(null) }
+
+    if (subjectToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { subjectToDelete = null },
+            title = { Text("Delete Subject?") },
+            text = { Text("Are you sure you want to delete '${subjectToDelete?.code}'? This cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteSubject(subjectToDelete!!)
+                        subjectToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = WarningRed)
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { subjectToDelete = null }) { Text("Cancel") }
+            }
+        )
+    }
 
     Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
         Text("Academic Year", style = MaterialTheme.typography.labelMedium, color = TextGray)
@@ -876,7 +995,11 @@ fun SubjectsScreen(viewModel: StudentViewModel) {
             } else {
                 LazyColumn(contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp), verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.weight(1f)) {
                     items(currentSubjects, key = { it.id }) { subject ->
-                        SubjectItem(subject, onClick = { showGradeDialog = subject }, onDelete = { viewModel.deleteSubject(subject) })
+                        SubjectItem(
+                            subject = subject,
+                            onClick = { showGradeDialog = subject },
+                            onDelete = { subjectToDelete = subject } // Trigger the confirmation dialog
+                        )
                     }
                 }
             }
