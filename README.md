@@ -2,7 +2,7 @@
 
 A comprehensive Android productivity application designed specifically for students to manage tasks, track academic performance, and stay focused. Built with **Modern Android Development** standards using Kotlin, Jetpack Compose, and Room Database.
 
-![App Banner](https://via.placeholder.com/1200x400?text=Student+Manager+App)
+![App Banner](screenshots/appBanner.png)
 ## ✨ Features
 
 ### 📅 Task Management
@@ -38,7 +38,7 @@ A comprehensive Android productivity application designed specifically for stude
 
 |              Dashboard              | Trash Bin | Schedule Grid | Focus Timer |
 |:-----------------------------------:|:---:|:---:|:---:|
-| ![Dashboard](screenshots/Dashboard.png) | ![Trash Bin](path/to/your/trash-screenshot.png) | ![Schedule](path/to/your/schedule-screenshot.png) | ![Focus](path/to/your/focus-screenshot.png) |
+| ![Dashboard](screenshots/Dashboard.png) | ![Trash Bin](screenshots/Trash.png) | ![Schedule](screenshots/Schedule.png) | ![Focus](screenshots/Focus.png) |
 
 *> Note: I have added placeholders above. Please upload your screenshots to your repository (e.g., in a folder named `screenshots`) and update the paths above!*
 
@@ -68,3 +68,4 @@ Contributions are welcome! If you have ideas for new features (like Cloud Sync o
 ---
 
 *Built with ❤️ for students everywhere.*
+
