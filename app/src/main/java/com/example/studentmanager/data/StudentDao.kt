@@ -10,18 +10,14 @@ import kotlinx.coroutines.flow.Flow
 interface StudentDao {
 
     // ------------------------------------
-    // 1. ASSIGNMENTS (With Trash & Search)
+    // 1. ASSIGNMENTS
     // ------------------------------------
-
-    // Get only ACTIVE assignments (isDeleted = false/0)
     @Query("SELECT * FROM assignments WHERE isDeleted = 0 ORDER BY deadline ASC")
     fun getActiveAssignments(): Flow<List<Assignment>>
 
-    // Get TRASHED assignments (isDeleted = true/1)
     @Query("SELECT * FROM assignments WHERE isDeleted = 1 ORDER BY deadline DESC")
     fun getTrashedAssignments(): Flow<List<Assignment>>
 
-    // Search functionality (Filter by title AND ensure they are active)
     @Query("SELECT * FROM assignments WHERE isDeleted = 0 AND title LIKE '%' || :query || '%' ORDER BY deadline ASC")
     fun searchAssignments(query: String): Flow<List<Assignment>>
 
@@ -31,15 +27,13 @@ interface StudentDao {
     @Update
     suspend fun updateAssignment(assignment: Assignment)
 
-    // This is the "Hard Delete" (removes from database entirely)
     @Delete
     suspend fun deleteAssignment(assignment: Assignment)
 
 
     // ------------------------------------
-    // 2. NOTES (Standard)
+    // 2. NOTES
     // ------------------------------------
-
     @Query("SELECT * FROM notes ORDER BY id DESC")
     fun getAllNotes(): Flow<List<BrainNote>>
 
@@ -51,11 +45,16 @@ interface StudentDao {
 
 
     // ------------------------------------
-    // 3. SUBJECTS (Standard)
+    // 3. SUBJECTS (Updated)
     // ------------------------------------
 
-    @Query("SELECT * FROM subjects")
+    // Filter out deleted subjects (soft delete check)
+    @Query("SELECT * FROM subjects WHERE isDeleted = 0")
     fun getAllSubjects(): Flow<List<Subject>>
+
+    // NEW: Get subjects in the trash
+    @Query("SELECT * FROM subjects WHERE isDeleted = 1")
+    fun getTrashedSubjects(): Flow<List<Subject>>
 
     @Insert
     suspend fun insertSubject(subject: Subject)

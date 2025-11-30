@@ -9,8 +9,8 @@ import com.example.studentmanager.Assignment
 import com.example.studentmanager.BrainNote
 import com.example.studentmanager.Subject
 
-// CHANGED: version = 2, and added fallbackToDestructiveMigration() below
-@Database(entities = [Assignment::class, BrainNote::class, Subject::class], version = 2, exportSchema = false)
+// CHANGED: version = 3
+@Database(entities = [Assignment::class, BrainNote::class, Subject::class], version = 3, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class StudentDatabase : RoomDatabase() {
     abstract fun studentDao(): StudentDao
@@ -26,7 +26,7 @@ abstract class StudentDatabase : RoomDatabase() {
                     StudentDatabase::class.java,
                     "student_database"
                 )
-                    .fallbackToDestructiveMigration() // THIS ALLOWS THE DB TO RESET WHEN VERSION CHANGES
+                    .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
                 instance

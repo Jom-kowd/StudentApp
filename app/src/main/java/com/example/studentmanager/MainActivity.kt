@@ -99,7 +99,7 @@ val ScheduleColors = listOf(
     Color(0xFFAED581)  // Green
 )
 
-// NEW: Task Card Colors (Pastel versions for background)
+// Task Card Colors (Pastel versions for background)
 val TaskColors = listOf(
     Color(0xFFFFFFFF), // 0: White (Default)
     Color(0xFFFFCDD2), // 1: Red
@@ -142,10 +142,9 @@ data class Assignment(
     val category: String,
     val isCompleted: Boolean = false,
     val isDeleted: Boolean = false,
-    // NEW FIELDS FOR CUSTOMIZATION
-    val colorIndex: Int = 0,    // Background color
-    val isBold: Boolean = false, // Bold Title
-    val isLarge: Boolean = false // Large Text
+    val colorIndex: Int = 0,
+    val isBold: Boolean = false,
+    val isLarge: Boolean = false
 ) {
     fun getFormattedDate(): String {
         val sdf = SimpleDateFormat("MMM dd, yyyy 'at' h:mm a", Locale.getDefault())
@@ -179,7 +178,9 @@ data class Subject(
     val colorIndex: Int = 0,
     val grade: Double? = null,
     val yearLevel: String,
-    val semester: String
+    val semester: String,
+    // NEW: Trash support for subjects
+    val isDeleted: Boolean = false
 ) {
     val scheduleString: String
         get() {
@@ -227,9 +228,10 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
     var filterType by mutableStateOf("All") // "All", "Urgent", "Completed"
     var showTrashBin by mutableStateOf(false) // Toggles the Trash Screen
 
-    // Separate lists for Active Tasks vs Trash Bin
+    // Separate lists for Active vs Trash
     var assignments = mutableStateListOf<Assignment>()
     var trashedAssignments = mutableStateListOf<Assignment>()
+    var trashedSubjects = mutableStateListOf<Subject>() // NEW: For Subjects in Trash
 
     // Standard lists for other features
     var notes = mutableStateListOf<BrainNote>()
@@ -248,9 +250,8 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
     private var timerJob: Job? = null
 
     init {
-        // 1. Observe ACTIVE assignments (Handles Search automatically)
+        // 1. Observe ACTIVE assignments
         viewModelScope.launch {
-            // "snapshotFlow" watches 'searchQuery'. Whenever it changes, this block re-runs.
             snapshotFlow { searchQuery }.collectLatest { query ->
                 val flow = if (query.isEmpty()) dao.getActiveAssignments() else dao.searchAssignments(query)
                 flow.collect { list ->
@@ -276,88 +277,57 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
             }
         }
 
-        // 4. Observe Subjects
+        // 4. Observe Active Subjects
         viewModelScope.launch {
             dao.getAllSubjects().collect { list ->
                 subjects.clear()
                 subjects.addAll(list)
             }
         }
+
+        // 5. Observe Trashed Subjects (NEW)
+        viewModelScope.launch {
+            dao.getTrashedSubjects().collect { list ->
+                trashedSubjects.clear()
+                trashedSubjects.addAll(list)
+            }
+        }
         loadProfile()
     }
 
-    // --- ASSIGNMENT ACTIONS (Enhanced) ---
+    // --- ASSIGNMENT ACTIONS ---
 
-    // Create New - UPDATED to include color and style
     fun addAssignment(title: String, deadline: Long, category: String, colorIndex: Int, isBold: Boolean, isLarge: Boolean) {
         viewModelScope.launch {
             val newAssignment = Assignment(
-                title = title,
-                deadline = deadline,
-                category = category,
-                colorIndex = colorIndex,
-                isBold = isBold,
-                isLarge = isLarge
+                title = title, deadline = deadline, category = category,
+                colorIndex = colorIndex, isBold = isBold, isLarge = isLarge
             )
             dao.insertAssignment(newAssignment)
             scheduleNotification(newAssignment)
         }
     }
 
-    // Update (Rename or Change Date)
-    fun updateAssignment(assignment: Assignment) {
-        viewModelScope.launch { dao.updateAssignment(assignment) }
-    }
+    fun updateAssignment(assignment: Assignment) { viewModelScope.launch { dao.updateAssignment(assignment) } }
 
-    // Mark Complete/Incomplete
     fun toggleAssignment(assignment: Assignment) {
-        viewModelScope.launch {
-            dao.updateAssignment(assignment.copy(isCompleted = !assignment.isCompleted))
-        }
+        viewModelScope.launch { dao.updateAssignment(assignment.copy(isCompleted = !assignment.isCompleted)) }
     }
 
-    // Soft Delete (Move to Trash)
     fun moveAssignmentToTrash(assignment: Assignment) {
         viewModelScope.launch { dao.updateAssignment(assignment.copy(isDeleted = true)) }
     }
 
-    // Restore from Trash
     fun restoreAssignment(assignment: Assignment) {
         viewModelScope.launch { dao.updateAssignment(assignment.copy(isDeleted = false)) }
     }
 
-    // Hard Delete (Gone Forever)
-    fun deleteForever(assignment: Assignment) {
+    fun deleteAssignmentForever(assignment: Assignment) {
         viewModelScope.launch { dao.deleteAssignment(assignment) }
     }
 
-    fun emptyTrash() {
-        viewModelScope.launch {
-            trashedAssignments.forEach { dao.deleteAssignment(it) }
-        }
-    }
+    // --- SUBJECT ACTIONS (Updated for Trash) ---
 
-    // Helper for "Urgent" / "Completed" tabs
-    fun getFilteredAssignments(): List<Assignment> {
-        return when (filterType) {
-            "Completed" -> assignments.filter { it.isCompleted }
-            "Urgent" -> assignments.filter { it.isUrgent() }
-            else -> assignments
-        }
-    }
-
-    // --- NOTES (Standard) ---
-    fun addNote(content: String) {
-        viewModelScope.launch {
-            dao.insertNote(BrainNote(content = content, colorIndex = (0..3).random()))
-        }
-    }
-
-    fun deleteNote(note: BrainNote) {
-        viewModelScope.launch { dao.deleteNote(note) }
-    }
-
-    // --- SUBJECTS (Standard) ---
     fun addSubject(name: String, code: String, units: Int, days: List<String>, sHour: Int, sMin: Int, eHour: Int, eMin: Int) {
         viewModelScope.launch {
             val newSubject = Subject(
@@ -374,9 +344,39 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch { dao.updateSubject(subject.copy(grade = newGrade)) }
     }
 
-    fun deleteSubject(subject: Subject) {
+    // Soft Delete for Subject
+    fun moveSubjectToTrash(subject: Subject) {
+        viewModelScope.launch { dao.updateSubject(subject.copy(isDeleted = true)) }
+    }
+
+    fun restoreSubject(subject: Subject) {
+        viewModelScope.launch { dao.updateSubject(subject.copy(isDeleted = false)) }
+    }
+
+    fun deleteSubjectForever(subject: Subject) {
         viewModelScope.launch { dao.deleteSubject(subject) }
     }
+
+    // --- EMPTY TRASH (Both Lists) ---
+    fun emptyTrash() {
+        viewModelScope.launch {
+            trashedAssignments.forEach { dao.deleteAssignment(it) }
+            trashedSubjects.forEach { dao.deleteSubject(it) }
+        }
+    }
+
+    // Helper for "Urgent" / "Completed" tabs
+    fun getFilteredAssignments(): List<Assignment> {
+        return when (filterType) {
+            "Completed" -> assignments.filter { it.isCompleted }
+            "Urgent" -> assignments.filter { it.isUrgent() }
+            else -> assignments
+        }
+    }
+
+    // --- NOTES (Standard) ---
+    fun addNote(content: String) { viewModelScope.launch { dao.insertNote(BrainNote(content = content, colorIndex = (0..3).random())) } }
+    fun deleteNote(note: BrainNote) { viewModelScope.launch { dao.deleteNote(note) } }
 
     // --- CALCULATIONS ---
     fun calculateSemGWA(): Double {
@@ -389,14 +389,11 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
 
     fun getProgress(): Float = if (assignments.isEmpty()) 0f else assignments.count { it.isCompleted }.toFloat() / assignments.size.toFloat()
 
-    // --- PROFILE & TIMER (Keep Existing Logic) ---
-
+    // --- PROFILE & TIMER ---
     fun updateProfile(name: String, school: String, bio: String, avatarId: Int, imageUri: String?, category: String) {
         val finalImageUri = if (imageUri != null && imageUri.startsWith("content://")) {
             copyUriToInternalStorage(android.net.Uri.parse(imageUri))
-        } else {
-            imageUri
-        }
+        } else imageUri
         userProfile = UserProfile(name, school, bio, avatarId, finalImageUri, category)
         saveProfile()
     }
@@ -407,26 +404,14 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
             val inputStream = context.contentResolver.openInputStream(uri) ?: return null
             val fileName = "profile_${System.currentTimeMillis()}.jpg"
             val file = File(context.filesDir, fileName)
-            context.filesDir.listFiles()?.forEach {
-                if (it.name.startsWith("profile_") && it.name != fileName) {
-                    it.delete()
-                }
-            }
-            file.outputStream().use { outputStream ->
-                inputStream.copyTo(outputStream)
-            }
+            context.filesDir.listFiles()?.forEach { if (it.name.startsWith("profile_") && it.name != fileName) it.delete() }
+            file.outputStream().use { outputStream -> inputStream.copyTo(outputStream) }
             inputStream.close()
             android.net.Uri.fromFile(file).toString()
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
+        } catch (e: Exception) { e.printStackTrace(); null }
     }
 
-    private fun saveProfile() {
-        prefs.edit().putString("profile", gson.toJson(userProfile)).apply()
-    }
-
+    private fun saveProfile() { prefs.edit().putString("profile", gson.toJson(userProfile)).apply() }
     private fun loadProfile() {
         val profileJson = prefs.getString("profile", null)
         if (profileJson != null) userProfile = gson.fromJson(profileJson, UserProfile::class.java)
@@ -531,7 +516,6 @@ fun StudentApp(viewModel: StudentViewModel) {
         }
         if (showAddDialog) {
             when (selectedTab) {
-                // Updated Dialog Call
                 0 -> AddAssignmentDialog(
                     onDismiss = { showAddDialog = false },
                     onConfirm = { t, d, c, color, bold, large ->
@@ -725,14 +709,12 @@ fun AssignmentCard(
     onEdit: () -> Unit,
     onDeleteRequest: () -> Unit
 ) {
-    // Determine Card Color: Use custom color if not completed, else gray out
     val cardColor = if (item.isCompleted) OffWhite else TaskColors[item.colorIndex % TaskColors.size]
     val textColor = if (item.isCompleted) Color.Gray else TextDark
     val textDeco = if (item.isCompleted) TextDecoration.LineThrough else TextDecoration.None
     val badgeColor = when (item.category) { "Activity" -> CatActivity; "Quiz" -> CatQuiz; "Major Exam" -> CatExam; "Thesis/Research" -> CatThesis; else -> CatOrg }
     val borderStroke = if (item.isUrgent()) androidx.compose.foundation.BorderStroke(1.dp, WarningRed) else null
 
-    // Typography Settings based on User Preference
     val fontWeight = if (item.isBold) FontWeight.Bold else FontWeight.SemiBold
     val fontSize = if (item.isLarge) 20.sp else 16.sp
 
@@ -752,7 +734,6 @@ fun AssignmentCard(
             }
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                // APPLIED CUSTOM FONT SIZE AND WEIGHT HERE
                 Text(
                     text = item.title,
                     fontSize = fontSize,
@@ -780,8 +761,28 @@ fun AssignmentCard(
     }
 }
 
+// --- UPDATED TRASH BIN SCREEN ---
 @Composable
 fun TrashBinScreen(viewModel: StudentViewModel) {
+    // NEW: Dialog for Empty Trash
+    var showEmptyConfirm by remember { mutableStateOf(false) }
+
+    if (showEmptyConfirm) {
+        AlertDialog(
+            onDismissRequest = { showEmptyConfirm = false },
+            title = { Text("Empty Trash?") },
+            text = { Text("Are you sure? This will permanently delete all items in the trash.") },
+            confirmButton = {
+                Button(onClick = { viewModel.emptyTrash(); showEmptyConfirm = false }, colors = ButtonDefaults.buttonColors(containerColor = WarningRed)) {
+                    Text("Delete All")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEmptyConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
             IconButton(onClick = { viewModel.showTrashBin = false }) {
@@ -789,26 +790,45 @@ fun TrashBinScreen(viewModel: StudentViewModel) {
             }
             Text("Trash Bin", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
-            if (viewModel.trashedAssignments.isNotEmpty()) {
-                TextButton(onClick = { viewModel.emptyTrash() }) {
+            if (viewModel.trashedAssignments.isNotEmpty() || viewModel.trashedSubjects.isNotEmpty()) {
+                TextButton(onClick = { showEmptyConfirm = true }) {
                     Text("Empty Trash", color = WarningRed)
                 }
             }
         }
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(viewModel.trashedAssignments) { item ->
-                Card(colors = CardDefaults.cardColors(containerColor = Color.LightGray.copy(0.2f))) {
-                    Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(item.title, style = MaterialTheme.typography.bodyLarge, textDecoration = TextDecoration.LineThrough)
-                            Text("Deleted", style = MaterialTheme.typography.bodySmall, color = WarningRed)
+            // Trashed Assignments Section
+            if (viewModel.trashedAssignments.isNotEmpty()) {
+                item { Text("Tasks", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextGray) }
+                items(viewModel.trashedAssignments) { item ->
+                    Card(colors = CardDefaults.cardColors(containerColor = Color.LightGray.copy(0.2f))) {
+                        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(item.title, style = MaterialTheme.typography.bodyLarge, textDecoration = TextDecoration.LineThrough)
+                            }
+                            IconButton(onClick = { viewModel.restoreAssignment(item) }) { Icon(Icons.Default.Restore, "Restore", tint = ElectricTeal) }
+                            IconButton(onClick = { viewModel.deleteAssignmentForever(item) }) { Icon(Icons.Default.DeleteForever, "Delete", tint = TextGray) }
                         }
-                        IconButton(onClick = { viewModel.restoreAssignment(item) }) {
-                            Icon(Icons.Default.Restore, "Restore", tint = ElectricTeal)
-                        }
-                        IconButton(onClick = { viewModel.deleteForever(item) }) {
-                            Icon(Icons.Default.DeleteForever, "Delete Forever", tint = TextGray)
+                    }
+                }
+            }
+
+            // Trashed Subjects Section
+            if (viewModel.trashedSubjects.isNotEmpty()) {
+                item {
+                    Spacer(Modifier.height(16.dp))
+                    Text("Subjects", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextGray)
+                }
+                items(viewModel.trashedSubjects) { item ->
+                    Card(colors = CardDefaults.cardColors(containerColor = Color.LightGray.copy(0.2f))) {
+                        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(item.code, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, textDecoration = TextDecoration.LineThrough)
+                                Text(item.name, style = MaterialTheme.typography.bodySmall, textDecoration = TextDecoration.LineThrough)
+                            }
+                            IconButton(onClick = { viewModel.restoreSubject(item) }) { Icon(Icons.Default.Restore, "Restore", tint = ElectricTeal) }
+                            IconButton(onClick = { viewModel.deleteSubjectForever(item) }) { Icon(Icons.Default.DeleteForever, "Delete", tint = TextGray) }
                         }
                     }
                 }
@@ -819,10 +839,7 @@ fun TrashBinScreen(viewModel: StudentViewModel) {
 
 @Composable
 fun NoteGrid(notes: List<BrainNote>, onDelete: (BrainNote) -> Unit) {
-    // State to track which note is being deleted
     var noteToDelete by remember { mutableStateOf<BrainNote?>(null) }
-
-    // DELETE CONFIRMATION DIALOG
     if (noteToDelete != null) {
         AlertDialog(
             onDismissRequest = { noteToDelete = null },
@@ -830,16 +847,11 @@ fun NoteGrid(notes: List<BrainNote>, onDelete: (BrainNote) -> Unit) {
             text = { Text("Are you sure you want to delete this note?") },
             confirmButton = {
                 Button(
-                    onClick = {
-                        onDelete(noteToDelete!!) // Call the actual delete
-                        noteToDelete = null
-                    },
+                    onClick = { onDelete(noteToDelete!!); noteToDelete = null },
                     colors = ButtonDefaults.buttonColors(containerColor = WarningRed)
                 ) { Text("Delete") }
             },
-            dismissButton = {
-                TextButton(onClick = { noteToDelete = null }) { Text("Cancel") }
-            }
+            dismissButton = { TextButton(onClick = { noteToDelete = null }) { Text("Cancel") } }
         )
     }
 
@@ -854,19 +866,10 @@ fun NoteGrid(notes: List<BrainNote>, onDelete: (BrainNote) -> Unit) {
         }
         items(notes) { note ->
             val noteColors = listOf(Color(0xFFFFF9C4), Color(0xFFE1BEE7), Color(0xFFB2DFDB), Color(0xFFFFCCBC))
-            Card(
-                colors = CardDefaults.cardColors(containerColor = noteColors[note.colorIndex % noteColors.size]),
-                modifier = Modifier.height(150.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp).fillMaxSize(),
-                    verticalArrangement = Arrangement.SpaceBetween
-                ) {
+            Card(colors = CardDefaults.cardColors(containerColor = noteColors[note.colorIndex % noteColors.size]), modifier = Modifier.height(150.dp)) {
+                Column(modifier = Modifier.padding(16.dp).fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                     Text(note.content, style = MaterialTheme.typography.bodyMedium, overflow = TextOverflow.Ellipsis)
-                    IconButton(
-                        onClick = { noteToDelete = note }, // Trigger the dialog
-                        modifier = Modifier.align(Alignment.End).size(24.dp)
-                    ) {
+                    IconButton(onClick = { noteToDelete = note }, modifier = Modifier.align(Alignment.End).size(24.dp)) {
                         Icon(Icons.Outlined.Delete, "Delete", tint = TextDark.copy(0.5f))
                     }
                 }
@@ -878,8 +881,6 @@ fun NoteGrid(notes: List<BrainNote>, onDelete: (BrainNote) -> Unit) {
 @Composable
 fun FocusScreen(viewModel: StudentViewModel) {
     val progress = if (viewModel.timerDuration > 0) viewModel.timeLeft.toFloat() / viewModel.timerDuration.toFloat() else 0f
-
-    // NEW: Custom Timer State
     var showCustomTimerDialog by remember { mutableStateOf(false) }
     var customMinutesInput by remember { mutableStateOf("") }
 
@@ -901,18 +902,12 @@ fun FocusScreen(viewModel: StudentViewModel) {
                 Button(
                     onClick = {
                         val mins = customMinutesInput.toIntOrNull()
-                        if (mins != null && mins > 0) {
-                            viewModel.setDuration(mins)
-                            showCustomTimerDialog = false
-                            customMinutesInput = ""
-                        }
+                        if (mins != null && mins > 0) { viewModel.setDuration(mins); showCustomTimerDialog = false; customMinutesInput = "" }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = DeepViolet)
                 ) { Text("Start") }
             },
-            dismissButton = {
-                TextButton(onClick = { showCustomTimerDialog = false }) { Text("Cancel") }
-            }
+            dismissButton = { TextButton(onClick = { showCustomTimerDialog = false }) { Text("Cancel") } }
         )
     }
 
@@ -935,24 +930,11 @@ fun FocusScreen(viewModel: StudentViewModel) {
             }
         }
         Spacer(Modifier.height(32.dp))
-        // Updated Chips Row
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             listOf(15, 25, 45).forEach { mins ->
-                FilterChip(
-                    selected = viewModel.timerDuration == mins * 60 * 1000L,
-                    onClick = { viewModel.setDuration(mins) },
-                    label = { Text("$mins min") },
-                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SoftViolet, selectedLabelColor = Color.White)
-                )
+                FilterChip(selected = viewModel.timerDuration == mins * 60 * 1000L, onClick = { viewModel.setDuration(mins) }, label = { Text("$mins min") }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SoftViolet, selectedLabelColor = Color.White))
             }
-            // Custom Option
-            FilterChip(
-                selected = false,
-                onClick = { showCustomTimerDialog = true },
-                label = { Text("Custom") },
-                leadingIcon = { Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp)) },
-                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SoftViolet, selectedLabelColor = Color.White)
-            )
+            FilterChip(selected = false, onClick = { showCustomTimerDialog = true }, label = { Text("Custom") }, leadingIcon = { Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp)) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SoftViolet, selectedLabelColor = Color.White))
         }
     }
 }
@@ -966,22 +948,23 @@ fun SubjectsScreen(viewModel: StudentViewModel) {
     var showGradeDialog by remember { mutableStateOf<Subject?>(null) }
     var isGridView by remember { mutableStateOf(false) }
 
-    // NEW: State for Delete Confirmation
+    // State for Delete Confirmation
     var subjectToDelete by remember { mutableStateOf<Subject?>(null) }
 
     if (subjectToDelete != null) {
         AlertDialog(
             onDismissRequest = { subjectToDelete = null },
-            title = { Text("Delete Subject?") },
-            text = { Text("Are you sure you want to delete '${subjectToDelete?.code}'? This cannot be undone.") },
+            title = { Text("Move to Trash?") },
+            text = { Text("Are you sure you want to remove '${subjectToDelete?.code}'? You can restore it from the Trash Bin.") },
             confirmButton = {
                 Button(
                     onClick = {
-                        viewModel.deleteSubject(subjectToDelete!!)
+                        // UPDATED: Now calls moveSubjectToTrash instead of deleteSubject
+                        viewModel.moveSubjectToTrash(subjectToDelete!!)
                         subjectToDelete = null
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = WarningRed)
-                ) { Text("Delete") }
+                ) { Text("Remove") }
             },
             dismissButton = {
                 TextButton(onClick = { subjectToDelete = null }) { Text("Cancel") }
@@ -1052,41 +1035,24 @@ fun ScheduleGrid(subjects: List<Subject>) {
     val startHour = 7
     val endHour = 19
     val hourHeight = 60.dp
-
     val scrollState = rememberScrollState()
 
     Row(modifier = Modifier.fillMaxSize().verticalScroll(scrollState)) {
         Column(modifier = Modifier.width(40.dp).padding(top = 20.dp)) {
             for (h in startHour..endHour) {
-                Text(
-                    text = if (h > 12) "${h - 12} PM" else if(h==12) "12 PM" else "$h AM",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextGray,
-                    modifier = Modifier.height(hourHeight)
-                )
+                Text(text = if (h > 12) "${h - 12} PM" else if(h==12) "12 PM" else "$h AM", style = MaterialTheme.typography.labelSmall, color = TextGray, modifier = Modifier.height(hourHeight))
             }
         }
-
         Row(modifier = Modifier.weight(1f)) {
             days.forEachIndexed { index, day ->
                 val daySubjects = subjects.filter { it.days.contains(day) }
-
                 Box(modifier = Modifier.weight(1f).height(hourHeight * (endHour - startHour + 1)).border(0.5.dp, Color.LightGray.copy(0.3f))) {
                     Text(day, modifier = Modifier.align(Alignment.TopCenter).offset(y = (-20).dp), fontWeight = FontWeight.Bold, color = DeepViolet)
-
                     daySubjects.forEach { sub ->
                         val topOffset = ((sub.startHour - startHour) * 60 + sub.startMinute) * (1.0)
                         val duration = ((sub.endHour * 60 + sub.endMinute) - (sub.startHour * 60 + sub.startMinute))
                         val height = duration * 1.0
-
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = ScheduleColors[sub.colorIndex % ScheduleColors.size]),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(1.dp)
-                                .offset(y = topOffset.dp)
-                                .height(height.dp)
-                        ) {
+                        Card(colors = CardDefaults.cardColors(containerColor = ScheduleColors[sub.colorIndex % ScheduleColors.size]), modifier = Modifier.fillMaxWidth().padding(1.dp).offset(y = topOffset.dp).height(height.dp)) {
                             Column(modifier = Modifier.padding(2.dp)) {
                                 Text(sub.code, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 8.sp, maxLines = 1)
                                 Text(sub.name, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(0.9f), fontSize = 7.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -1098,7 +1064,6 @@ fun ScheduleGrid(subjects: List<Subject>) {
         }
     }
 }
-
 
 @Composable
 fun SubjectItem(subject: Subject, onClick: () -> Unit, onDelete: () -> Unit) {
@@ -1127,63 +1092,40 @@ fun SubjectItem(subject: Subject, onClick: () -> Unit, onDelete: () -> Unit) {
     }
 }
 
-// --- DIALOGS (Enhanced) ---
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddSubjectDialog(onDismiss: () -> Unit, onConfirm: (String, String, Int, List<String>, Int, Int, Int, Int) -> Unit) {
     var name by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
     var units by remember { mutableStateOf("3") }
-
     val days = listOf("M", "T", "W", "Th", "F", "S")
     val selectedDays = remember { mutableStateListOf<String>() }
-
     val timeStateStart = rememberTimePickerState(8, 0, false)
     val timeStateEnd = rememberTimePickerState(9, 30, false)
     var showStartTime by remember { mutableStateOf(false) }
     var showEndTime by remember { mutableStateOf(false) }
 
-    if(showStartTime) {
-        TimePickerDialog(onDismiss = { showStartTime = false }, onConfirm = { showStartTime = false }) { TimeInput(timeStateStart) }
-    }
-    if(showEndTime) {
-        TimePickerDialog(onDismiss = { showEndTime = false }, onConfirm = { showEndTime = false }) { TimeInput(timeStateEnd) }
-    }
+    if(showStartTime) TimePickerDialog(onDismiss = { showStartTime = false }, onConfirm = { showStartTime = false }) { TimeInput(timeStateStart) }
+    if(showEndTime) TimePickerDialog(onDismiss = { showEndTime = false }, onConfirm = { showEndTime = false }) { TimeInput(timeStateEnd) }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add Subject Schedule") },
+        onDismissRequest = onDismiss, title = { Text("Add Subject Schedule") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(value = code, onValueChange = { code = it }, label = { Text("Code (e.g. IT 101)") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = units, onValueChange = { if(it.all {c->c.isDigit()}) units = it }, label = { Text("Units") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-
                 Text("Class Days:", style = MaterialTheme.typography.labelSmall)
-                Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
-                    days.forEach { day ->
-                        FilterChip(selected = selectedDays.contains(day), onClick = { if(selectedDays.contains(day)) selectedDays.remove(day) else selectedDays.add(day) }, label = { Text(day) })
-                    }
-                }
-
+                Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) { days.forEach { day -> FilterChip(selected = selectedDays.contains(day), onClick = { if(selectedDays.contains(day)) selectedDays.remove(day) else selectedDays.add(day) }, label = { Text(day) }) } }
                 Text("Time:", style = MaterialTheme.typography.labelSmall)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    OutlinedTextField(
-                        value = "${timeStateStart.hour%12}:${String.format("%02d", timeStateStart.minute)} ${if(timeStateStart.hour>=12) "PM" else "AM"}",
-                        onValueChange = {}, readOnly = true, label = { Text("Start") }, modifier = Modifier.weight(1f).clickable { showStartTime = true }, enabled = false, colors = OutlinedTextFieldDefaults.colors(disabledTextColor = TextDark, disabledBorderColor = Color.Gray, disabledLabelColor = TextGray)
-                    )
+                    OutlinedTextField(value = "${timeStateStart.hour%12}:${String.format("%02d", timeStateStart.minute)} ${if(timeStateStart.hour>=12) "PM" else "AM"}", onValueChange = {}, readOnly = true, label = { Text("Start") }, modifier = Modifier.weight(1f).clickable { showStartTime = true }, enabled = false, colors = OutlinedTextFieldDefaults.colors(disabledTextColor = TextDark, disabledBorderColor = Color.Gray, disabledLabelColor = TextGray))
                     Spacer(Modifier.width(8.dp))
-                    OutlinedTextField(
-                        value = "${timeStateEnd.hour%12}:${String.format("%02d", timeStateEnd.minute)} ${if(timeStateEnd.hour>=12) "PM" else "AM"}",
-                        onValueChange = {}, readOnly = true, label = { Text("End") }, modifier = Modifier.weight(1f).clickable { showEndTime = true }, enabled = false, colors = OutlinedTextFieldDefaults.colors(disabledTextColor = TextDark, disabledBorderColor = Color.Gray, disabledLabelColor = TextGray)
-                    )
+                    OutlinedTextField(value = "${timeStateEnd.hour%12}:${String.format("%02d", timeStateEnd.minute)} ${if(timeStateEnd.hour>=12) "PM" else "AM"}", onValueChange = {}, readOnly = true, label = { Text("End") }, modifier = Modifier.weight(1f).clickable { showEndTime = true }, enabled = false, colors = OutlinedTextFieldDefaults.colors(disabledTextColor = TextDark, disabledBorderColor = Color.Gray, disabledLabelColor = TextGray))
                 }
             }
         },
-        confirmButton = {
-            Button(onClick = { if (name.isNotEmpty() && code.isNotEmpty() && selectedDays.isNotEmpty()) onConfirm(name, code, units.toIntOrNull()?:3, selectedDays, timeStateStart.hour, timeStateStart.minute, timeStateEnd.hour, timeStateEnd.minute) }, colors = ButtonDefaults.buttonColors(containerColor = DeepViolet)) { Text("Enroll") }
-        },
+        confirmButton = { Button(onClick = { if (name.isNotEmpty() && code.isNotEmpty() && selectedDays.isNotEmpty()) onConfirm(name, code, units.toIntOrNull()?:3, selectedDays, timeStateStart.hour, timeStateStart.minute, timeStateEnd.hour, timeStateEnd.minute) }, colors = ButtonDefaults.buttonColors(containerColor = DeepViolet)) { Text("Enroll") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
@@ -1210,8 +1152,6 @@ fun AddAssignmentDialog(
 ) {
     var title by remember { mutableStateOf(initialTitle) }
     var selectedCategory by remember { mutableStateOf(initialCategory) }
-
-    // NEW STATES
     var selectedColor by remember { mutableIntStateOf(initialColor) }
     var isBold by remember { mutableStateOf(initialBold) }
     var isLarge by remember { mutableStateOf(initialLarge) }
@@ -1236,35 +1176,14 @@ fun AddAssignmentDialog(
                 OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = dateFormat.format(Date(datePickerState.selectedDateMillis ?: initialDate)), onValueChange = {}, label = { Text("Date") }, readOnly = true, trailingIcon = { IconButton({ showDatePicker = true }) { Icon(Icons.Default.DateRange, "Pick Date") } }, modifier = Modifier.fillMaxWidth().clickable { showDatePicker = true })
                 OutlinedTextField(value = timeText, onValueChange = {}, label = { Text("Time") }, readOnly = true, trailingIcon = { IconButton({ showTimePicker = true }) { Icon(Icons.Default.AccessTime, "Pick Time") } }, modifier = Modifier.fillMaxWidth().clickable { showTimePicker = true })
-
-                // CATEGORY CHIPS
                 Text("Category:", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    categories.take(3).forEach { cat ->
-                        FilterChip(selected = selectedCategory == cat, onClick = { selectedCategory = cat }, label = { Text(cat, fontSize = 10.sp) })
-                    }
-                }
-
-                // COLOR PICKER
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) { categories.take(3).forEach { cat -> FilterChip(selected = selectedCategory == cat, onClick = { selectedCategory = cat }, label = { Text(cat, fontSize = 10.sp) }) } }
                 Text("Color:", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TaskColors.forEachIndexed { index, color ->
-                        Box(
-                            modifier = Modifier
-                                .size(30.dp)
-                                .clip(CircleShape)
-                                .background(color)
-                                .border(
-                                    width = if (selectedColor == index) 2.dp else 1.dp,
-                                    color = if (selectedColor == index) DeepViolet else Color.LightGray,
-                                    shape = CircleShape
-                                )
-                                .clickable { selectedColor = index }
-                        )
+                        Box(modifier = Modifier.size(30.dp).clip(CircleShape).background(color).border(width = if (selectedColor == index) 2.dp else 1.dp, color = if (selectedColor == index) DeepViolet else Color.LightGray, shape = CircleShape).clickable { selectedColor = index })
                     }
                 }
-
-                // TEXT STYLES (BOLD / LARGE)
                 Text("Appearance:", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = isBold, onCheckedChange = { isBold = it })
@@ -1275,18 +1194,7 @@ fun AddAssignmentDialog(
                 }
             }
         },
-        confirmButton = {
-            Button({
-                if (title.isNotEmpty()) {
-                    val c = Calendar.getInstance();
-                    c.timeInMillis = datePickerState.selectedDateMillis ?: initialDate;
-                    c.set(Calendar.HOUR_OF_DAY, timePickerState.hour);
-                    c.set(Calendar.MINUTE, timePickerState.minute);
-                    // Pass new values
-                    onConfirm(title, c.timeInMillis, selectedCategory, selectedColor, isBold, isLarge)
-                }
-            }, colors = ButtonDefaults.buttonColors(containerColor = DeepViolet)) { Text(if(isEditMode) "Save Changes" else "Add") }
-        },
+        confirmButton = { Button({ if (title.isNotEmpty()) { val c = Calendar.getInstance(); c.timeInMillis = datePickerState.selectedDateMillis ?: initialDate; c.set(Calendar.HOUR_OF_DAY, timePickerState.hour); c.set(Calendar.MINUTE, timePickerState.minute); onConfirm(title, c.timeInMillis, selectedCategory, selectedColor, isBold, isLarge) } }, colors = ButtonDefaults.buttonColors(containerColor = DeepViolet)) { Text(if(isEditMode) "Save Changes" else "Add") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
