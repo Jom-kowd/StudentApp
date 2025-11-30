@@ -79,6 +79,12 @@ import androidx.room.PrimaryKey
 import com.example.studentmanager.data.StudentDatabase
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.collectLatest
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.*
 
 // --- 1. THEME & COLORS ---
 
@@ -1138,21 +1144,148 @@ fun AboutDialog(onDismiss: () -> Unit) {
     val facebookUrl = "https://www.facebook.com/markjomar.calmateo.1"
     val linkedinUrl = "https://www.linkedin.com/in/mark-jomar-calmateo-684834366/"
     val githubUrl = "https://github.com/Jom-kowd"
-    AlertDialog(onDismissRequest = onDismiss, icon = { Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary) }, title = { Text("About Student Manager", fontWeight = FontWeight.Bold) }, text = {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Version 1.0.0", style = MaterialTheme.typography.labelSmall, color = TextGrayLight); HorizontalDivider()
-            Text("Developed by:", style = MaterialTheme.typography.bodySmall, color = TextGrayLight)
-            Text("MARK JOMAR S. CALMATEO", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            Text("</DEVELOPER>", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            Text("This app helps Filipino college students manage subjects, GWA, and deadlines.", style = MaterialTheme.typography.bodySmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            Spacer(Modifier.height(8.dp)); Text("Connect with me:", style = MaterialTheme.typography.labelSmall, color = TextGrayLight)
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                IconButton(onClick = { uriHandler.openUri(facebookUrl) }) { Icon(Icons.Default.ThumbUp, "Facebook", tint = Color(0xFF1877F2)) }
-                IconButton(onClick = { uriHandler.openUri(linkedinUrl) }) { Icon(Icons.Default.Work, "LinkedIn", tint = Color(0xFF0077B5)) }
-                IconButton(onClick = { uriHandler.openUri(githubUrl) }) { Icon(Icons.Default.Code, "GitHub", tint = MaterialTheme.colorScheme.onSurface) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 6.dp,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier.padding(24.dp), // Adds breathing room from screen edges
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+            ) {
+                Text("Close", fontWeight = FontWeight.SemiBold)
+            }
+        },
+        title = null, // We build a custom header inside 'text' for better control
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                // --- 1. APP HEADER ---
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(80.dp)
+                        .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.School,
+                        contentDescription = null,
+                        modifier = Modifier.size(40.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Student Manager",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Version 1.0.0",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Text(
+                    text = "Empowering Filipino students to master their schedules, track academic performance, and crush deadlines.",
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                // --- 2. DEVELOPER PROFILE CARD ---
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        // ADDED: fillMaxWidth() ensures the column centers itself in the card
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "DEVELOPED BY",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center // Added explicit center
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "Mark Jomar S. Calmateo",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center // Added explicit center
+                        )
+                        Text(
+                            text = "Web & Mobile Developer",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontStyle = FontStyle.Italic,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center // Added explicit center
+                        )
+
+                        Spacer(Modifier.height(16.dp))
+
+                        // Social Buttons
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            SocialButton(
+                                icon = Icons.Default.ThumbUp,
+                                color = Color(0xFF1877F2),
+                                onClick = { uriHandler.openUri(facebookUrl) }
+                            )
+                            SocialButton(
+                                icon = Icons.Default.Work,
+                                color = Color(0xFF0077B5),
+                                onClick = { uriHandler.openUri(linkedinUrl) }
+                            )
+                            SocialButton(
+                                icon = Icons.Default.Code,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                onClick = { uriHandler.openUri(githubUrl) }
+                            )
+                        }
+                    }
+                }
+
+                // --- 3. TECH STACK ---
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Built with Modern Android",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TechBadge("Kotlin")
+                        TechBadge("Compose")
+                        TechBadge("Room")
+                    }
+                }
             }
         }
-    }, confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } })
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1163,3 +1296,30 @@ fun YearSemDropdown(value: String, options: List<String>, onValueChange: (String
 }
 
 fun formatTime(millis: Long): String { val totalSeconds = millis / 1000; return String.format("%02d:%02d", totalSeconds / 60, totalSeconds % 60) }
+
+@Composable
+fun SocialButton(icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color, onClick: () -> Unit) {
+    FilledIconButton(
+        onClick = onClick,
+        colors = IconButtonDefaults.filledIconButtonColors(containerColor = color.copy(alpha = 0.1f), contentColor = color),
+        modifier = Modifier.size(40.dp)
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+    }
+}
+
+@Composable
+fun TechBadge(text: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+    }
+}
