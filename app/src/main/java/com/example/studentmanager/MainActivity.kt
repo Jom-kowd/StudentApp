@@ -195,12 +195,12 @@ data class Subject(
 // --- 3. NOTIFICATION LOGIC ---
 class NotificationReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val title = intent.getStringExtra("TITLE") ?: "Task Due!"
-        val message = intent.getStringExtra("MESSAGE") ?: "You have a deadline coming up."
+        val title = intent.getStringExtra("TITLE") ?: "Student Manager"
+        val message = intent.getStringExtra("MESSAGE") ?: "You have a notification."
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "student_tasks_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "Task Deadlines", NotificationManager.IMPORTANCE_HIGH)
+            val channel = NotificationChannel(channelId, "Student Notifications", NotificationManager.IMPORTANCE_HIGH)
             notificationManager.createNotificationChannel(channel)
         }
         val notification = NotificationCompat.Builder(context, channelId)
@@ -270,36 +270,152 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
         loadProfile()
     }
 
+    // --- ASSIGNMENT ALARMS ---
     fun addAssignment(title: String, deadline: Long, category: String, colorIndex: Int, isBold: Boolean, isLarge: Boolean) {
         viewModelScope.launch {
             val newAssignment = Assignment(title = title, deadline = deadline, category = category, colorIndex = colorIndex, isBold = isBold, isLarge = isLarge)
-            dao.insertAssignment(newAssignment)
-            scheduleNotification(newAssignment)
+            val id = dao.insertAssignment(newAssignment)
+            scheduleNotification(newAssignment.copy(id = id)) // Use actual ID
         }
     }
     fun updateAssignment(assignment: Assignment) { viewModelScope.launch { dao.updateAssignment(assignment) } }
     fun toggleAssignment(assignment: Assignment) { viewModelScope.launch { dao.updateAssignment(assignment.copy(isCompleted = !assignment.isCompleted)) } }
-    fun moveAssignmentToTrash(assignment: Assignment) { viewModelScope.launch { dao.updateAssignment(assignment.copy(isDeleted = true)) } }
-    fun restoreAssignment(assignment: Assignment) { viewModelScope.launch { dao.updateAssignment(assignment.copy(isDeleted = false)) } }
-    fun deleteAssignmentForever(assignment: Assignment) { viewModelScope.launch { dao.deleteAssignment(assignment) } }
 
+    fun moveAssignmentToTrash(assignment: Assignment) {
+        viewModelScope.launch {
+            dao.updateAssignment(assignment.copy(isDeleted = true))
+            // Cancel notification when moved to trash
+            cancelNotification(assignment.id.toInt())
+        }
+    }
+
+    fun restoreAssignment(assignment: Assignment) {
+        viewModelScope.launch {
+            dao.updateAssignment(assignment.copy(isDeleted = false))
+            // Reschedule notification
+            if(!assignment.isCompleted && assignment.deadline > System.currentTimeMillis()) {
+                scheduleNotification(assignment)
+            }
+        }
+    }
+
+    fun deleteAssignmentForever(assignment: Assignment) {
+        viewModelScope.launch {
+            dao.deleteAssignment(assignment)
+            cancelNotification(assignment.id.toInt())
+        }
+    }
+
+    // --- SUBJECT ALARMS ---
     fun addSubject(name: String, code: String, units: Int, days: List<String>, sHour: Int, sMin: Int, eHour: Int, eMin: Int) {
         viewModelScope.launch {
             val newSubject = Subject(name = name, code = code, units = units, days = days, startHour = sHour, startMinute = sMin, endHour = eHour, endMinute = eMin, colorIndex = (0..5).random(), yearLevel = selectedYear, semester = selectedSem)
-            dao.insertSubject(newSubject)
+            val id = dao.insertSubject(newSubject)
+            scheduleSubjectNotification(newSubject.copy(id = id))
         }
     }
+
     fun updateSubjectGrade(subject: Subject, newGrade: Double) { viewModelScope.launch { dao.updateSubject(subject.copy(grade = newGrade)) } }
-    fun moveSubjectToTrash(subject: Subject) { viewModelScope.launch { dao.updateSubject(subject.copy(isDeleted = true)) } }
-    fun restoreSubject(subject: Subject) { viewModelScope.launch { dao.updateSubject(subject.copy(isDeleted = false)) } }
-    fun deleteSubjectForever(subject: Subject) { viewModelScope.launch { dao.deleteSubject(subject) } }
+
+    fun moveSubjectToTrash(subject: Subject) {
+        viewModelScope.launch {
+            dao.updateSubject(subject.copy(isDeleted = true))
+            cancelSubjectNotification(subject)
+        }
+    }
+
+    fun restoreSubject(subject: Subject) {
+        viewModelScope.launch {
+            dao.updateSubject(subject.copy(isDeleted = false))
+            scheduleSubjectNotification(subject)
+        }
+    }
+
+    fun deleteSubjectForever(subject: Subject) {
+        viewModelScope.launch {
+            dao.deleteSubject(subject)
+            cancelSubjectNotification(subject)
+        }
+    }
 
     fun emptyTrash() {
         viewModelScope.launch {
-            trashedAssignments.forEach { dao.deleteAssignment(it) }
-            trashedSubjects.forEach { dao.deleteSubject(it) }
+            trashedAssignments.forEach {
+                dao.deleteAssignment(it)
+                cancelNotification(it.id.toInt())
+            }
+            trashedSubjects.forEach {
+                dao.deleteSubject(it)
+                cancelSubjectNotification(it)
+            }
         }
     }
+
+    // --- ALARM HELPERS ---
+
+    private fun scheduleNotification(assignment: Assignment) {
+        val intent = Intent(getApplication(), NotificationReceiver::class.java).apply {
+            putExtra("TITLE", "Deadline: ${assignment.title}")
+            putExtra("MESSAGE", "Your ${assignment.category} task is due today!")
+        }
+        val pendingIntent = PendingIntent.getBroadcast(getApplication(), assignment.id.toInt(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (alarmManager.canScheduleExactAlarms()) alarmManager.setExact(AlarmManager.RTC_WAKEUP, assignment.deadline, pendingIntent)
+                else alarmManager.set(AlarmManager.RTC_WAKEUP, assignment.deadline, pendingIntent)
+            } else alarmManager.setExact(AlarmManager.RTC_WAKEUP, assignment.deadline, pendingIntent)
+        } catch (e: SecurityException) { e.printStackTrace() }
+    }
+
+    private fun cancelNotification(id: Int) {
+        val intent = Intent(getApplication(), NotificationReceiver::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(getApplication(), id, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        alarmManager.cancel(pendingIntent)
+    }
+
+    private fun scheduleSubjectNotification(subject: Subject) {
+        val daysMap = mapOf("M" to Calendar.MONDAY, "T" to Calendar.TUESDAY, "W" to Calendar.WEDNESDAY, "Th" to Calendar.THURSDAY, "F" to Calendar.FRIDAY, "S" to Calendar.SATURDAY)
+
+        subject.days.forEachIndexed { index, dayStr ->
+            val dayConst = daysMap[dayStr] ?: return@forEachIndexed
+            val calendar = Calendar.getInstance().apply {
+                set(Calendar.DAY_OF_WEEK, dayConst)
+                set(Calendar.HOUR_OF_DAY, subject.startHour)
+                set(Calendar.MINUTE, subject.startMinute)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+                add(Calendar.MINUTE, -15) // 15 mins before
+            }
+
+            // If time passed, move to next week
+            if (calendar.timeInMillis < System.currentTimeMillis()) {
+                calendar.add(Calendar.DAY_OF_YEAR, 7)
+            }
+
+            val intent = Intent(getApplication(), NotificationReceiver::class.java).apply {
+                putExtra("TITLE", "Class in 15m: ${subject.code}")
+                putExtra("MESSAGE", "${subject.name} starts at ${String.format("%02d:%02d", subject.startHour, subject.startMinute)}")
+            }
+            // Unique Request Code: SubjectID * 100 + DayIndex (to avoid collisions)
+            val requestCode = (subject.id * 1000 + index).toInt()
+            val pendingIntent = PendingIntent.getBroadcast(getApplication(), requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
+            try {
+                alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, calendar.timeInMillis, AlarmManager.INTERVAL_DAY * 7, pendingIntent)
+            } catch (e: SecurityException) { e.printStackTrace() }
+        }
+    }
+
+    private fun cancelSubjectNotification(subject: Subject) {
+        subject.days.forEachIndexed { index, _ ->
+            val requestCode = (subject.id * 1000 + index).toInt()
+            val intent = Intent(getApplication(), NotificationReceiver::class.java)
+            val pendingIntent = PendingIntent.getBroadcast(getApplication(), requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            alarmManager.cancel(pendingIntent)
+        }
+    }
+
+    // --- STANDARD VM METHODS ---
     fun getFilteredAssignments(): List<Assignment> {
         return when (filterType) {
             "Completed" -> assignments.filter { it.isCompleted }
@@ -345,22 +461,6 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
     private fun pauseTimer() { isTimerRunning = false; timerJob?.cancel() }
     fun resetTimer() { pauseTimer(); timeLeft = timerDuration }
     fun setDuration(minutes: Int) { resetTimer(); timerDuration = minutes * 60 * 1000L; timeLeft = timerDuration }
-    private fun scheduleNotification(assignment: Assignment) {
-        val intent = Intent(getApplication(), NotificationReceiver::class.java).apply {
-            putExtra("TITLE", "Deadline: ${assignment.title}")
-            putExtra("MESSAGE", "Your ${assignment.category} task is due today!")
-        }
-        val pendingIntent = PendingIntent.getBroadcast(
-            getApplication(), assignment.id.toInt(), intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (alarmManager.canScheduleExactAlarms()) alarmManager.setExact(AlarmManager.RTC_WAKEUP, assignment.deadline, pendingIntent)
-                else alarmManager.set(AlarmManager.RTC_WAKEUP, assignment.deadline, pendingIntent)
-            } else alarmManager.setExact(AlarmManager.RTC_WAKEUP, assignment.deadline, pendingIntent)
-        } catch (e: SecurityException) { e.printStackTrace() }
-    }
 }
 
 // --- 5. UI (COMPOSABLES) ---
@@ -478,6 +578,7 @@ fun StudentApp(viewModel: StudentViewModel) {
     }
 }
 
+// --- UI SECTIONS ---
 @Composable
 fun TopHeader(profile: UserProfile, viewModel: StudentViewModel, onProfileClick: () -> Unit, onAboutClick: () -> Unit) {
     val avatars = listOf(Icons.Default.Face, Icons.Default.SentimentVerySatisfied, Icons.Default.SmartToy, Icons.Default.Star, Icons.Default.AccountCircle, Icons.Default.Pets)
@@ -517,14 +618,38 @@ fun TopHeader(profile: UserProfile, viewModel: StudentViewModel, onProfileClick:
 @Composable
 fun DashboardSection(progress: Float) {
     val animatedProgress by animateFloatAsState(targetValue = progress, animationSpec = tween(durationMillis = 1000), label = "progress")
-    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary), elevation = CardDefaults.cardElevation(8.dp)) {
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
+        elevation = CardDefaults.cardElevation(8.dp)
+    ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Your Progress", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
-                Text("${(animatedProgress * 100).toInt()}%", color = SoftTeal, fontWeight = FontWeight.Bold)
+                Text(
+                    "Your Progress",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+                // UPDATED LINE: Uses onPrimary for adaptive visibility
+                Text(
+                    "${(animatedProgress * 100).toInt()}%",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontWeight = FontWeight.Bold
+                )
             }
             Spacer(Modifier.height(12.dp))
-            LinearProgressIndicator(progress = { animatedProgress }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)), color = ElectricTeal, trackColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.3f))
+            LinearProgressIndicator(
+                progress = { animatedProgress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(50)),
+                color = ElectricTeal,
+                trackColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.3f)
+            )
         }
     }
 }

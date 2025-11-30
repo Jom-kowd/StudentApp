@@ -21,8 +21,9 @@ interface StudentDao {
     @Query("SELECT * FROM assignments WHERE isDeleted = 0 AND title LIKE '%' || :query || '%' ORDER BY deadline ASC")
     fun searchAssignments(query: String): Flow<List<Assignment>>
 
+    // CHANGED: Returns Long (The new ID)
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAssignment(assignment: Assignment)
+    suspend fun insertAssignment(assignment: Assignment): Long
 
     @Update
     suspend fun updateAssignment(assignment: Assignment)
@@ -45,19 +46,18 @@ interface StudentDao {
 
 
     // ------------------------------------
-    // 3. SUBJECTS (Updated)
+    // 3. SUBJECTS
     // ------------------------------------
 
-    // Filter out deleted subjects (soft delete check)
     @Query("SELECT * FROM subjects WHERE isDeleted = 0")
     fun getAllSubjects(): Flow<List<Subject>>
 
-    // NEW: Get subjects in the trash
     @Query("SELECT * FROM subjects WHERE isDeleted = 1")
     fun getTrashedSubjects(): Flow<List<Subject>>
 
+    // CHANGED: Returns Long (The new ID)
     @Insert
-    suspend fun insertSubject(subject: Subject)
+    suspend fun insertSubject(subject: Subject): Long
 
     @Update
     suspend fun updateSubject(subject: Subject)
