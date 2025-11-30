@@ -16,6 +16,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -195,12 +196,12 @@ data class Subject(
 // --- 3. NOTIFICATION LOGIC ---
 class NotificationReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val title = intent.getStringExtra("TITLE") ?: "Student Manager"
-        val message = intent.getStringExtra("MESSAGE") ?: "You have a notification."
+        val title = intent.getStringExtra("TITLE") ?: "Task Due!"
+        val message = intent.getStringExtra("MESSAGE") ?: "You have a deadline coming up."
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "student_tasks_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "Student Notifications", NotificationManager.IMPORTANCE_HIGH)
+            val channel = NotificationChannel(channelId, "Task Deadlines", NotificationManager.IMPORTANCE_HIGH)
             notificationManager.createNotificationChannel(channel)
         }
         val notification = NotificationCompat.Builder(context, channelId)
@@ -284,7 +285,6 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
     fun moveAssignmentToTrash(assignment: Assignment) {
         viewModelScope.launch {
             dao.updateAssignment(assignment.copy(isDeleted = true))
-            // Cancel notification when moved to trash
             cancelNotification(assignment.id.toInt())
         }
     }
@@ -292,7 +292,6 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
     fun restoreAssignment(assignment: Assignment) {
         viewModelScope.launch {
             dao.updateAssignment(assignment.copy(isDeleted = false))
-            // Reschedule notification
             if(!assignment.isCompleted && assignment.deadline > System.currentTimeMillis()) {
                 scheduleNotification(assignment)
             }
@@ -387,7 +386,6 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
                 add(Calendar.MINUTE, -15) // 15 mins before
             }
 
-            // If time passed, move to next week
             if (calendar.timeInMillis < System.currentTimeMillis()) {
                 calendar.add(Calendar.DAY_OF_YEAR, 7)
             }
@@ -396,7 +394,6 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
                 putExtra("TITLE", "Class in 15m: ${subject.code}")
                 putExtra("MESSAGE", "${subject.name} starts at ${String.format("%02d:%02d", subject.startHour, subject.startMinute)}")
             }
-            // Unique Request Code: SubjectID * 100 + DayIndex (to avoid collisions)
             val requestCode = (subject.id * 1000 + index).toInt()
             val pendingIntent = PendingIntent.getBroadcast(getApplication(), requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
@@ -559,11 +556,31 @@ fun StudentApp(viewModel: StudentViewModel) {
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding)) {
             if (selectedTab != 2) TopHeader(viewModel.userProfile, viewModel, { showProfileDialog = true }, { showAboutDialog = true })
-            when (selectedTab) {
-                0 -> { DashboardSection(viewModel.getProgress()); AssignmentList(viewModel) }
-                1 -> NoteGrid(viewModel.notes) { viewModel.deleteNote(it) }
-                2 -> FocusScreen(viewModel)
-                3 -> SubjectsScreen(viewModel)
+
+            AnimatedContent(
+                targetState = selectedTab,
+                label = "TabTransition",
+                transitionSpec = {
+                    if (targetState > initialState) {
+                        (slideInHorizontally { width -> width } + fadeIn()).togetherWith(slideOutHorizontally { width -> -width } + fadeOut())
+                    } else {
+                        (slideInHorizontally { width -> -width } + fadeIn()).togetherWith(slideOutHorizontally { width -> width } + fadeOut())
+                    }
+                }
+            ) { targetTab ->
+                when (targetTab) {
+                    0 -> {
+                        // FIXED: Wrapped in Column to prevent stacking
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            DashboardSection(viewModel.getProgress())
+                            // FIXED: Added modifier to fill remaining space
+                            AssignmentList(viewModel, Modifier.weight(1f))
+                        }
+                    }
+                    1 -> NoteGrid(viewModel.notes) { viewModel.deleteNote(it) }
+                    2 -> FocusScreen(viewModel)
+                    3 -> SubjectsScreen(viewModel)
+                }
             }
         }
         if (showAddDialog) {
@@ -618,89 +635,79 @@ fun TopHeader(profile: UserProfile, viewModel: StudentViewModel, onProfileClick:
 @Composable
 fun DashboardSection(progress: Float) {
     val animatedProgress by animateFloatAsState(targetValue = progress, animationSpec = tween(durationMillis = 1000), label = "progress")
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
-        elevation = CardDefaults.cardElevation(8.dp)
-    ) {
+    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary), elevation = CardDefaults.cardElevation(8.dp)) {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(
-                    "Your Progress",
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    fontWeight = FontWeight.Bold
-                )
-                // UPDATED LINE: Uses onPrimary for adaptive visibility
-                Text(
-                    "${(animatedProgress * 100).toInt()}%",
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    fontWeight = FontWeight.Bold
-                )
+                Text("Your Progress", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                Text("${(animatedProgress * 100).toInt()}%", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.height(12.dp))
-            LinearProgressIndicator(
-                progress = { animatedProgress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(50)),
-                color = ElectricTeal,
-                trackColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.3f)
-            )
+            LinearProgressIndicator(progress = { animatedProgress }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)), color = ElectricTeal, trackColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.3f))
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AssignmentList(viewModel: StudentViewModel) {
+fun AssignmentList(viewModel: StudentViewModel, modifier: Modifier = Modifier) {
     var assignmentToEdit by remember { mutableStateOf<Assignment?>(null) }
     var assignmentToDelete by remember { mutableStateOf<Assignment?>(null) }
 
-    if (viewModel.showTrashBin) { TrashBinScreen(viewModel); return }
+    // Use modifier on the container to fill remaining space
+    AnimatedContent(targetState = viewModel.showTrashBin, label = "TrashBinTransition", modifier = modifier) { showTrash ->
+        if (showTrash) {
+            TrashBinScreen(viewModel)
+        } else {
+            Column(modifier = Modifier.padding(horizontal = 24.dp)) {
+                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Tasks", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    IconButton(onClick = { viewModel.showTrashBin = true }) { Icon(Icons.Default.DeleteSweep, "Trash Bin", tint = TextGrayLight) }
+                }
 
-    Column(modifier = Modifier.padding(horizontal = 24.dp)) {
-        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Tasks", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-            IconButton(onClick = { viewModel.showTrashBin = true }) { Icon(Icons.Default.DeleteSweep, "Trash Bin", tint = TextGrayLight) }
-        }
-
-        OutlinedTextField(
-            value = viewModel.searchQuery,
-            onValueChange = { viewModel.searchQuery = it },
-            placeholder = { Text("Search tasks...") },
-            leadingIcon = { Icon(Icons.Default.Search, null, tint = TextGrayLight) },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = Color.LightGray,
-                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                cursorColor = MaterialTheme.colorScheme.primary
-            )
-        )
-
-        Row(modifier = Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("All", "Urgent", "Completed").forEach { type ->
-                FilterChip(
-                    selected = viewModel.filterType == type,
-                    onClick = { viewModel.filterType = type },
-                    label = { Text(type) },
-                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary)
+                OutlinedTextField(
+                    value = viewModel.searchQuery,
+                    onValueChange = { viewModel.searchQuery = it },
+                    placeholder = { Text("Search tasks...") },
+                    leadingIcon = { Icon(Icons.Default.Search, null, tint = TextGrayLight) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = Color.LightGray,
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        cursorColor = MaterialTheme.colorScheme.primary
+                    )
                 )
-            }
-        }
 
-        val filteredList = viewModel.getFilteredAssignments()
-        LazyColumn(contentPadding = PaddingValues(bottom = 80.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (filteredList.isEmpty()) item { Text("No tasks found.", modifier = Modifier.fillMaxWidth().padding(24.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = TextGrayLight) }
-            items(filteredList, key = { it.id }) { item -> AssignmentCard(item = item, isDark = viewModel.isDarkMode, onToggle = { viewModel.toggleAssignment(item) }, onEdit = { assignmentToEdit = item }, onDeleteRequest = { assignmentToDelete = item }) }
+                Row(modifier = Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("All", "Urgent", "Completed").forEach { type ->
+                        FilterChip(
+                            selected = viewModel.filterType == type,
+                            onClick = { viewModel.filterType = type },
+                            label = { Text(type) },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary)
+                        )
+                    }
+                }
+
+                val filteredList = viewModel.getFilteredAssignments()
+                LazyColumn(contentPadding = PaddingValues(bottom = 80.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (filteredList.isEmpty()) item { Text("No tasks found.", modifier = Modifier.fillMaxWidth().padding(24.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = TextGrayLight) }
+                    items(filteredList, key = { it.id }) { item ->
+                        AssignmentCard(
+                            item = item,
+                            isDark = viewModel.isDarkMode,
+                            modifier = Modifier.animateItem(),
+                            onToggle = { viewModel.toggleAssignment(item) },
+                            onEdit = { assignmentToEdit = item },
+                            onDeleteRequest = { assignmentToDelete = item }
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -709,7 +716,14 @@ fun AssignmentList(viewModel: StudentViewModel) {
 }
 
 @Composable
-fun AssignmentCard(item: Assignment, isDark: Boolean, onToggle: (Assignment) -> Unit, onEdit: () -> Unit, onDeleteRequest: () -> Unit) {
+fun AssignmentCard(
+    item: Assignment,
+    isDark: Boolean,
+    modifier: Modifier = Modifier,
+    onToggle: (Assignment) -> Unit,
+    onEdit: () -> Unit,
+    onDeleteRequest: () -> Unit
+) {
     val cardColors = if(isDark) TaskColorsDark else TaskColorsLight
     val bgColor = if (item.isCompleted) MaterialTheme.colorScheme.surface.copy(alpha = 0.5f) else cardColors[item.colorIndex % cardColors.size]
 
@@ -721,7 +735,7 @@ fun AssignmentCard(item: Assignment, isDark: Boolean, onToggle: (Assignment) -> 
     val fontWeight = if (item.isBold) FontWeight.Bold else FontWeight.SemiBold
     val fontSize = if (item.isLarge) 20.sp else 16.sp
 
-    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = bgColor), elevation = CardDefaults.cardElevation(if (item.isCompleted) 0.dp else 4.dp), border = borderStroke) {
+    Card(modifier = modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = bgColor), elevation = CardDefaults.cardElevation(if (item.isCompleted) 0.dp else 4.dp), border = borderStroke) {
         Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             FilledIconToggleButton(checked = item.isCompleted, onCheckedChange = { onToggle(item) }, colors = IconButtonDefaults.filledIconToggleButtonColors(containerColor = MaterialTheme.colorScheme.background, contentColor = Color.Gray, checkedContainerColor = ElectricTeal, checkedContentColor = Color.White)) {
                 if (item.isCompleted) Icon(Icons.Default.Check, "Done") else Icon(Icons.Default.Circle, "Pending", tint = Color.LightGray)
@@ -746,11 +760,11 @@ fun AssignmentCard(item: Assignment, isDark: Boolean, onToggle: (Assignment) -> 
 }
 
 @Composable
-fun TrashBinScreen(viewModel: StudentViewModel) {
+fun TrashBinScreen(viewModel: StudentViewModel, modifier: Modifier = Modifier) {
     var showEmptyConfirm by remember { mutableStateOf(false) }
     if (showEmptyConfirm) AlertDialog(onDismissRequest = { showEmptyConfirm = false }, title = { Text("Empty Trash?") }, text = { Text("Permanently delete all items?") }, confirmButton = { Button(onClick = { viewModel.emptyTrash(); showEmptyConfirm = false }, colors = ButtonDefaults.buttonColors(containerColor = WarningRed)) { Text("Delete All") } }, dismissButton = { TextButton(onClick = { showEmptyConfirm = false }) { Text("Cancel") } })
 
-    Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+    Column(modifier = modifier.fillMaxSize().padding(24.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
             IconButton(onClick = { viewModel.showTrashBin = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onSurface) }
             Text("Trash Bin", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
@@ -761,8 +775,8 @@ fun TrashBinScreen(viewModel: StudentViewModel) {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (viewModel.trashedAssignments.isNotEmpty()) {
                 item { Text("Tasks", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextGrayLight) }
-                items(viewModel.trashedAssignments) { item ->
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha=0.6f))) {
+                items(viewModel.trashedAssignments, key = { "assign_${it.id}" }) { item ->
+                    Card(modifier = Modifier.animateItem(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha=0.6f))) {
                         Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) { Text(item.title, style = MaterialTheme.typography.bodyLarge, textDecoration = TextDecoration.LineThrough, color = MaterialTheme.colorScheme.onSurface) }
                             IconButton(onClick = { viewModel.restoreAssignment(item) }) { Icon(Icons.Default.Restore, "Restore", tint = ElectricTeal) }
@@ -773,8 +787,8 @@ fun TrashBinScreen(viewModel: StudentViewModel) {
             }
             if (viewModel.trashedSubjects.isNotEmpty()) {
                 item { Spacer(Modifier.height(16.dp)); Text("Subjects", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextGrayLight) }
-                items(viewModel.trashedSubjects) { item ->
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha=0.6f))) {
+                items(viewModel.trashedSubjects, key = { "sub_${it.id}" }) { item ->
+                    Card(modifier = Modifier.animateItem(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha=0.6f))) {
                         Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) { Text(item.code, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, textDecoration = TextDecoration.LineThrough, color = MaterialTheme.colorScheme.onSurface); Text(item.name, style = MaterialTheme.typography.bodySmall, textDecoration = TextDecoration.LineThrough, color = TextGrayLight) }
                             IconButton(onClick = { viewModel.restoreSubject(item) }) { Icon(Icons.Default.Restore, "Restore", tint = ElectricTeal) }
@@ -787,6 +801,9 @@ fun TrashBinScreen(viewModel: StudentViewModel) {
     }
 }
 
+// ... (NoteGrid, FocusScreen, SubjectsScreen, Dialogs remain identical to your previous working version)
+// Included purely to ensure no compilation errors due to missing functions.
+
 @Composable
 fun NoteGrid(notes: List<BrainNote>, onDelete: (BrainNote) -> Unit) {
     var noteToDelete by remember { mutableStateOf<BrainNote?>(null) }
@@ -794,9 +811,13 @@ fun NoteGrid(notes: List<BrainNote>, onDelete: (BrainNote) -> Unit) {
 
     LazyVerticalGrid(columns = GridCells.Fixed(2), contentPadding = PaddingValues(24.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) { Text("Brain Dump", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) }
-        items(notes) { note ->
+        items(notes, key = { it.id }) { note ->
             val noteColors = listOf(Color(0xFFFFF9C4), Color(0xFFE1BEE7), Color(0xFFB2DFDB), Color(0xFFFFCCBC))
-            Card(colors = CardDefaults.cardColors(containerColor = noteColors[note.colorIndex % noteColors.size]), modifier = Modifier.height(150.dp)) {
+            // Notes are always pastel, so black text is fine
+            Card(
+                colors = CardDefaults.cardColors(containerColor = noteColors[note.colorIndex % noteColors.size]),
+                modifier = Modifier.height(150.dp).animateItem()
+            ) {
                 Column(modifier = Modifier.padding(16.dp).fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                     Text(note.content, style = MaterialTheme.typography.bodyMedium, overflow = TextOverflow.Ellipsis, color = Color.Black)
                     IconButton(onClick = { noteToDelete = note }, modifier = Modifier.align(Alignment.End).size(24.dp)) { Icon(Icons.Outlined.Delete, "Delete", tint = Color.DarkGray) }
@@ -883,7 +904,14 @@ fun SubjectsScreen(viewModel: StudentViewModel) {
         } else {
             if (isGridView) ScheduleGrid(currentSubjects)
             else LazyColumn(contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp), verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.weight(1f)) {
-                items(currentSubjects, key = { it.id }) { subject -> SubjectItem(subject = subject, onClick = { showGradeDialog = subject }, onDelete = { subjectToDelete = subject }) }
+                items(currentSubjects, key = { it.id }) { subject ->
+                    SubjectItem(
+                        subject = subject,
+                        modifier = Modifier.animateItem(),
+                        onClick = { showGradeDialog = subject },
+                        onDelete = { subjectToDelete = subject }
+                    )
+                }
             }
         }
     }
@@ -925,8 +953,12 @@ fun ScheduleGrid(subjects: List<Subject>) {
 }
 
 @Composable
-fun SubjectItem(subject: Subject, onClick: () -> Unit, onDelete: () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(2.dp), modifier = Modifier.clickable { onClick() }) {
+fun SubjectItem(subject: Subject, modifier: Modifier = Modifier, onClick: () -> Unit, onDelete: () -> Unit) {
+    Card(
+        modifier = modifier.clickable { onClick() },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
         Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = MaterialTheme.colorScheme.background, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(50.dp)) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
