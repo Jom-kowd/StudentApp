@@ -9,8 +9,8 @@ import com.example.studentmanager.Assignment
 import com.example.studentmanager.BrainNote
 import com.example.studentmanager.Subject
 
-// CHANGED: version = 3
-@Database(entities = [Assignment::class, BrainNote::class, Subject::class], version = 3, exportSchema = false)
+// CHANGED: version = 4
+@Database(entities = [Assignment::class, BrainNote::class, Subject::class], version = 4, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class StudentDatabase : RoomDatabase() {
     abstract fun studentDao(): StudentDao

@@ -21,7 +21,6 @@ interface StudentDao {
     @Query("SELECT * FROM assignments WHERE isDeleted = 0 AND title LIKE '%' || :query || '%' ORDER BY deadline ASC")
     fun searchAssignments(query: String): Flow<List<Assignment>>
 
-    // CHANGED: Returns Long (The new ID)
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAssignment(assignment: Assignment): Long
 
@@ -33,13 +32,16 @@ interface StudentDao {
 
 
     // ------------------------------------
-    // 2. NOTES
+    // 2. NOTES (Updated)
     // ------------------------------------
     @Query("SELECT * FROM notes ORDER BY id DESC")
     fun getAllNotes(): Flow<List<BrainNote>>
 
     @Insert
     suspend fun insertNote(note: BrainNote)
+
+    @Update
+    suspend fun updateNote(note: BrainNote) // ADDED THIS
 
     @Delete
     suspend fun deleteNote(note: BrainNote)
@@ -55,7 +57,6 @@ interface StudentDao {
     @Query("SELECT * FROM subjects WHERE isDeleted = 1")
     fun getTrashedSubjects(): Flow<List<Subject>>
 
-    // CHANGED: Returns Long (The new ID)
     @Insert
     suspend fun insertSubject(subject: Subject): Long
 
