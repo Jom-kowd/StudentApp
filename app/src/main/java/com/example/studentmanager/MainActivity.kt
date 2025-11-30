@@ -99,6 +99,17 @@ val ScheduleColors = listOf(
     Color(0xFFAED581)  // Green
 )
 
+// NEW: Task Card Colors (Pastel versions for background)
+val TaskColors = listOf(
+    Color(0xFFFFFFFF), // 0: White (Default)
+    Color(0xFFFFCDD2), // 1: Red
+    Color(0xFFE1BEE7), // 2: Purple
+    Color(0xFFBBDEFB), // 3: Blue
+    Color(0xFFC8E6C9), // 4: Green
+    Color(0xFFFFF9C4), // 5: Yellow
+    Color(0xFFFFE0B2)  // 6: Orange
+)
+
 // PH Grading Colors
 val GradeA = Color(0xFF4CAF50)
 val GradeB = Color(0xFF8BC34A)
@@ -130,7 +141,11 @@ data class Assignment(
     val deadline: Long,
     val category: String,
     val isCompleted: Boolean = false,
-    val isDeleted: Boolean = false
+    val isDeleted: Boolean = false,
+    // NEW FIELDS FOR CUSTOMIZATION
+    val colorIndex: Int = 0,    // Background color
+    val isBold: Boolean = false, // Bold Title
+    val isLarge: Boolean = false // Large Text
 ) {
     fun getFormattedDate(): String {
         val sdf = SimpleDateFormat("MMM dd, yyyy 'at' h:mm a", Locale.getDefault())
@@ -273,10 +288,17 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
 
     // --- ASSIGNMENT ACTIONS (Enhanced) ---
 
-    // Create New
-    fun addAssignment(title: String, deadline: Long, category: String) {
+    // Create New - UPDATED to include color and style
+    fun addAssignment(title: String, deadline: Long, category: String, colorIndex: Int, isBold: Boolean, isLarge: Boolean) {
         viewModelScope.launch {
-            val newAssignment = Assignment(title = title, deadline = deadline, category = category)
+            val newAssignment = Assignment(
+                title = title,
+                deadline = deadline,
+                category = category,
+                colorIndex = colorIndex,
+                isBold = isBold,
+                isLarge = isLarge
+            )
             dao.insertAssignment(newAssignment)
             scheduleNotification(newAssignment)
         }
@@ -368,46 +390,32 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
     fun getProgress(): Float = if (assignments.isEmpty()) 0f else assignments.count { it.isCompleted }.toFloat() / assignments.size.toFloat()
 
     // --- PROFILE & TIMER (Keep Existing Logic) ---
-    // --- PROFILE & TIMER ---
 
     fun updateProfile(name: String, school: String, bio: String, avatarId: Int, imageUri: String?, category: String) {
-        // 1. Check if the image is from the gallery (content://)
         val finalImageUri = if (imageUri != null && imageUri.startsWith("content://")) {
-            // 2. If yes, copy it to our app's private storage
             copyUriToInternalStorage(android.net.Uri.parse(imageUri))
         } else {
-            // 3. If it's already a file or null, keep it as is
             imageUri
         }
-
         userProfile = UserProfile(name, school, bio, avatarId, finalImageUri, category)
         saveProfile()
     }
 
-    // --- HELPER FUNCTION TO COPY IMAGE ---
     private fun copyUriToInternalStorage(uri: android.net.Uri): String? {
         return try {
             val context = getApplication<Application>()
             val inputStream = context.contentResolver.openInputStream(uri) ?: return null
-
-            // Create a unique file name
             val fileName = "profile_${System.currentTimeMillis()}.jpg"
             val file = File(context.filesDir, fileName)
-
-            // Delete old profile images to save space (Optional but recommended)
             context.filesDir.listFiles()?.forEach {
                 if (it.name.startsWith("profile_") && it.name != fileName) {
                     it.delete()
                 }
             }
-
-            // Copy the data
             file.outputStream().use { outputStream ->
                 inputStream.copyTo(outputStream)
             }
             inputStream.close()
-
-            // Return the path to the new file
             android.net.Uri.fromFile(file).toString()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -424,7 +432,6 @@ class StudentViewModel(application: Application) : AndroidViewModel(application)
         if (profileJson != null) userProfile = gson.fromJson(profileJson, UserProfile::class.java)
     }
 
-    // Timer functions
     fun toggleTimer() { if (isTimerRunning) pauseTimer() else startTimer() }
     private fun startTimer() { isTimerRunning = true; timerJob = viewModelScope.launch { while (timeLeft > 0) { delay(1000L); timeLeft -= 1000L }; isTimerRunning = false } }
     private fun pauseTimer() { isTimerRunning = false; timerJob?.cancel() }
@@ -524,7 +531,14 @@ fun StudentApp(viewModel: StudentViewModel) {
         }
         if (showAddDialog) {
             when (selectedTab) {
-                0 -> AddAssignmentDialog({ showAddDialog = false }) { t, d, c -> viewModel.addAssignment(t, d, c); showAddDialog = false }
+                // Updated Dialog Call
+                0 -> AddAssignmentDialog(
+                    onDismiss = { showAddDialog = false },
+                    onConfirm = { t, d, c, color, bold, large ->
+                        viewModel.addAssignment(t, d, c, color, bold, large)
+                        showAddDialog = false
+                    }
+                )
                 1 -> AddNoteDialog({ showAddDialog = false }) { c -> viewModel.addNote(c); showAddDialog = false }
                 3 -> AddSubjectDialog({ showAddDialog = false }) { name, code, units, days, sh, sm, eh, em ->
                     viewModel.addSubject(name, code, units, days, sh, sm, eh, em)
@@ -662,14 +676,24 @@ fun AssignmentList(viewModel: StudentViewModel) {
     if (assignmentToEdit != null) {
         AddAssignmentDialog(
             onDismiss = { assignmentToEdit = null },
-            onConfirm = { title, deadline, category ->
-                viewModel.updateAssignment(assignmentToEdit!!.copy(title = title, deadline = deadline, category = category))
+            onConfirm = { title, deadline, category, color, bold, large ->
+                viewModel.updateAssignment(assignmentToEdit!!.copy(
+                    title = title,
+                    deadline = deadline,
+                    category = category,
+                    colorIndex = color,
+                    isBold = bold,
+                    isLarge = large
+                ))
                 assignmentToEdit = null
             },
             isEditMode = true,
             initialTitle = assignmentToEdit!!.title,
             initialCategory = assignmentToEdit!!.category,
-            initialDate = assignmentToEdit!!.deadline
+            initialDate = assignmentToEdit!!.deadline,
+            initialColor = assignmentToEdit!!.colorIndex,
+            initialBold = assignmentToEdit!!.isBold,
+            initialLarge = assignmentToEdit!!.isLarge
         )
     }
 
@@ -701,11 +725,16 @@ fun AssignmentCard(
     onEdit: () -> Unit,
     onDeleteRequest: () -> Unit
 ) {
-    val cardColor = if (item.isCompleted) OffWhite else CardWhite
+    // Determine Card Color: Use custom color if not completed, else gray out
+    val cardColor = if (item.isCompleted) OffWhite else TaskColors[item.colorIndex % TaskColors.size]
     val textColor = if (item.isCompleted) Color.Gray else TextDark
     val textDeco = if (item.isCompleted) TextDecoration.LineThrough else TextDecoration.None
     val badgeColor = when (item.category) { "Activity" -> CatActivity; "Quiz" -> CatQuiz; "Major Exam" -> CatExam; "Thesis/Research" -> CatThesis; else -> CatOrg }
     val borderStroke = if (item.isUrgent()) androidx.compose.foundation.BorderStroke(1.dp, WarningRed) else null
+
+    // Typography Settings based on User Preference
+    val fontWeight = if (item.isBold) FontWeight.Bold else FontWeight.SemiBold
+    val fontSize = if (item.isLarge) 20.sp else 16.sp
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -723,7 +752,14 @@ fun AssignmentCard(
             }
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = textColor, textDecoration = textDeco)
+                // APPLIED CUSTOM FONT SIZE AND WEIGHT HERE
+                Text(
+                    text = item.title,
+                    fontSize = fontSize,
+                    fontWeight = fontWeight,
+                    color = textColor,
+                    textDecoration = textDeco
+                )
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(color = badgeColor.copy(alpha = 0.2f), shape = RoundedCornerShape(4.dp)) { Text(item.category, color = badgeColor, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(6.dp, 2.dp)) }
@@ -1163,15 +1199,23 @@ fun TimePickerDialog(onDismiss: () -> Unit, onConfirm: () -> Unit, content: @Com
 @Composable
 fun AddAssignmentDialog(
     onDismiss: () -> Unit,
-    // We moved onConfirm to the bottom so trailing lambdas work again
     isEditMode: Boolean = false,
     initialTitle: String = "",
     initialCategory: String = "Activity",
     initialDate: Long = System.currentTimeMillis(),
-    onConfirm: (String, Long, String) -> Unit // <--- Now it's last!
+    initialColor: Int = 0,
+    initialBold: Boolean = false,
+    initialLarge: Boolean = false,
+    onConfirm: (String, Long, String, Int, Boolean, Boolean) -> Unit
 ) {
     var title by remember { mutableStateOf(initialTitle) }
     var selectedCategory by remember { mutableStateOf(initialCategory) }
+
+    // NEW STATES
+    var selectedColor by remember { mutableIntStateOf(initialColor) }
+    var isBold by remember { mutableStateOf(initialBold) }
+    var isLarge by remember { mutableStateOf(initialLarge) }
+
     val categories = listOf("Activity", "Quiz", "Major Exam", "Thesis/Research", "Org Work")
     val calendar = Calendar.getInstance()
     calendar.timeInMillis = initialDate
@@ -1192,10 +1236,57 @@ fun AddAssignmentDialog(
                 OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = dateFormat.format(Date(datePickerState.selectedDateMillis ?: initialDate)), onValueChange = {}, label = { Text("Date") }, readOnly = true, trailingIcon = { IconButton({ showDatePicker = true }) { Icon(Icons.Default.DateRange, "Pick Date") } }, modifier = Modifier.fillMaxWidth().clickable { showDatePicker = true })
                 OutlinedTextField(value = timeText, onValueChange = {}, label = { Text("Time") }, readOnly = true, trailingIcon = { IconButton({ showTimePicker = true }) { Icon(Icons.Default.AccessTime, "Pick Time") } }, modifier = Modifier.fillMaxWidth().clickable { showTimePicker = true })
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) { categories.take(3).forEach { cat -> FilterChip(selected = selectedCategory == cat, onClick = { selectedCategory = cat }, label = { Text(cat, fontSize = 10.sp) }) } }
+
+                // CATEGORY CHIPS
+                Text("Category:", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    categories.take(3).forEach { cat ->
+                        FilterChip(selected = selectedCategory == cat, onClick = { selectedCategory = cat }, label = { Text(cat, fontSize = 10.sp) })
+                    }
+                }
+
+                // COLOR PICKER
+                Text("Color:", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TaskColors.forEachIndexed { index, color ->
+                        Box(
+                            modifier = Modifier
+                                .size(30.dp)
+                                .clip(CircleShape)
+                                .background(color)
+                                .border(
+                                    width = if (selectedColor == index) 2.dp else 1.dp,
+                                    color = if (selectedColor == index) DeepViolet else Color.LightGray,
+                                    shape = CircleShape
+                                )
+                                .clickable { selectedColor = index }
+                        )
+                    }
+                }
+
+                // TEXT STYLES (BOLD / LARGE)
+                Text("Appearance:", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = isBold, onCheckedChange = { isBold = it })
+                    Text("Bold Title")
+                    Spacer(Modifier.width(16.dp))
+                    Checkbox(checked = isLarge, onCheckedChange = { isLarge = it })
+                    Text("Large Text")
+                }
             }
         },
-        confirmButton = { Button({ if (title.isNotEmpty()) { val c = Calendar.getInstance(); c.timeInMillis = datePickerState.selectedDateMillis ?: initialDate; c.set(Calendar.HOUR_OF_DAY, timePickerState.hour); c.set(Calendar.MINUTE, timePickerState.minute); onConfirm(title, c.timeInMillis, selectedCategory) } }, colors = ButtonDefaults.buttonColors(containerColor = DeepViolet)) { Text(if(isEditMode) "Save Changes" else "Add") } },
+        confirmButton = {
+            Button({
+                if (title.isNotEmpty()) {
+                    val c = Calendar.getInstance();
+                    c.timeInMillis = datePickerState.selectedDateMillis ?: initialDate;
+                    c.set(Calendar.HOUR_OF_DAY, timePickerState.hour);
+                    c.set(Calendar.MINUTE, timePickerState.minute);
+                    // Pass new values
+                    onConfirm(title, c.timeInMillis, selectedCategory, selectedColor, isBold, isLarge)
+                }
+            }, colors = ButtonDefaults.buttonColors(containerColor = DeepViolet)) { Text(if(isEditMode) "Save Changes" else "Add") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
