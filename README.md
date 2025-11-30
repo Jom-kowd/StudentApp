@@ -2,37 +2,46 @@
 
 A comprehensive Android productivity application designed specifically for students to manage tasks, track academic performance, and stay focused. Built with **Modern Android Development** standards using Kotlin, Jetpack Compose, and Room Database.
 
+<div align="center">
+
+<img src="https://img.shields.io/badge/Kotlin-100%25-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white" />
+<img src="https://img.shields.io/badge/Jetpack%20Compose-Material3-4285F4?style=for-the-badge&logo=android&logoColor=white" />
+<img src="https://img.shields.io/badge/Architecture-MVVM-4CAF50?style=for-the-badge" />
+<img src="https://img.shields.io/badge/Database-Room-FF9800?style=for-the-badge" />
+
+</div>
+
 ![App Banner](screenshots/appBanner.png)
-## ✨ Features
+
+## ✨ New Features (v3.0)
+
+### 🌙 Dark Mode Support
+* **Theme Toggle:** Instantly switch between Light and Dark modes with a dedicated button.
+* **Adaptive UI:** Colors and text automatically adjust for optimal readability in any lighting.
+
+### 🔔 Smart Notifications
+* **Class Reminders:** Get notified **15 minutes before** every class starts.
+* **Task Deadlines:** Automatic alerts for assignments due today.
+
+### 🗑️ Trash Bin & Safety
+* **Soft Delete:** Accidental deletions are safe! Tasks and Subjects go to the Trash Bin first.
+* **Restore:** Bring back deleted items with a single tap.
+* **Empty Trash:** Secure confirmation dialog prevents permanent data loss.
+
+## 🚀 Core Features
 
 ### 📅 Task Management
-* **Create & Track:** Add assignments with deadlines and categories (Quiz, Exam, Project).
-* **Search & Filter:** Instantly find tasks using the search bar or filter by "Urgent" and "Completed".
-* **Trash Bin:** Safely delete tasks with the ability to **Restore** them or **Delete Forever**.
-* **Smart Reminders:** Local notifications for upcoming deadlines..
+* **Customization:** Color-code tasks (Sticky Note style) and use **Bold** or **Large** text for important items.
+* **Search & Filter:** Instantly find tasks or filter by "Urgent" and "Completed".
 
 ### 📚 Academic Tracker
-* **Subject Enrollment:** Add subjects with specific schedule times (Days, Start/End Time).
+* **Subject Enrollment:** Add subjects with specific schedules (Days, Start/End Time).
 * **Schedule Visualizer:** View your class schedule in a dynamic **Grid View** or standard List View.
-* **GWA Calculator:** Automatically calculates your Semester General Weighted Average based on units and grades.
+* **GWA Calculator:** Automatically calculates your Semester General Weighted Average.
 
-### 🧠 Productivity & Notes
-* **Focus Mode:** A built-in Pomodoro-style timer with preset durations (15, 25, 45 mins) and a **Custom Timer** option.
+### 🧠 Productivity
+* **Focus Mode:** A built-in Pomodoro-style timer with custom durations.
 * **Brain Dump:** Quick, colorful sticky notes for capturing ideas on the fly.
-
-### 👤 User Profile
-* **Customizable Profile:** Set your name, school, bio, and major.
-* **Persistent Avatar:** Pick a profile picture from your gallery that stays saved locally.
-
-## 🛠️ Tech Stack
-
-* **Language:** [Kotlin](https://kotlinlang.org/) (100%)
-* **UI Framework:** [Jetpack Compose](https://developer.android.com/jetpack/compose) (Material3 Design)
-* **Architecture:** MVVM (Model-View-ViewModel)
-* **Local Database:** [Room Database](https://developer.android.com/training/data-storage/room) (SQLite abstraction)
-* **Async Operations:** Coroutines & Kotlin Flow
-* **Image Loading:** [Coil](https://coil-kt.github.io/coil/)
-* **Notifications:** Android AlarmManager & BroadcastReceiver
 
 ## 📸 Screenshots
 
@@ -40,24 +49,17 @@ A comprehensive Android productivity application designed specifically for stude
 |:-----------------------------------:|:---:|:---:|:---:|
 | ![Dashboard](screenshots/Dashboard.png) | ![Trash Bin](screenshots/Trash.png) | ![Schedule](screenshots/Schedule.png) | ![Focus](screenshots/Focus.png) |
 
-*> Note: I have added placeholders above. Please upload your screenshots to your repository (e.g., in a folder named `screenshots`) and update the paths above!*
+*> Note: Don't forget to update your screenshots folder with new images showing Dark Mode!*
 
-## 🚀 How to Run
+## 🛠️ Tech Stack
 
-1.  **Clone the repository:**
-    ```bash
-    git clone [https://github.com/Jom-kowd/studentapp.git](https://github.com/Jom-kowd/studentapp.git)
-    ```
-2.  **Open in Android Studio:**
-    * Select `File > Open` and choose the project folder.
-    * Let Gradle sync complete.
-3.  **Run the App:**
-    * Connect an Android device or start an Emulator (Minimum SDK 26 recommended).
-    * Click the green **Run** button.
-
-## 🤝 Contributing
-
-Contributions are welcome! If you have ideas for new features (like Cloud Sync or Dark Mode), feel free to fork the repo and submit a Pull Request.
+* **Language:** [Kotlin](https://kotlinlang.org/) (100%)
+* **UI Framework:** [Jetpack Compose](https://developer.android.com/jetpack/compose) (Material3 Design)
+* **Architecture:** MVVM (Model-View-ViewModel)
+* **Local Database:** [Room Database](https://developer.android.com/training/data-storage/room)
+* **Async Operations:** Coroutines & Kotlin Flow
+* **Image Loading:** [Coil](https://coil-kt.github.io/coil/)
+* **Notifications:** Android AlarmManager & BroadcastReceiver
 
 ## 👨‍💻 Developer
 
@@ -68,4 +70,3 @@ Contributions are welcome! If you have ideas for new features (like Cloud Sync o
 ---
 
 *Built with ❤️ for students everywhere.*
-
